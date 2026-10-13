@@ -8,8 +8,11 @@ import {
   dbGet,
   dbGetAll,
   dbGetByIndex,
+  dbGetAllByIndexRange,
+  dbGetBatch,
   dbPut,
   dbDelete,
+  dbDeleteByIndexRange,
   dbClear,
   dbCount,
   DB_NAME,
@@ -82,28 +85,67 @@ export class PageRepository {
     return dbGetByIndex<PageRecord>(db, 'pages', 'canonicalUrl', canonicalizeUrl(url));
   }
 
+  /**
+   * 列出页面记录。
+   * 优化：优先使用 lastVisitedAt 索引 + IDBKeyRange 做服务端过滤与排序，
+   * 避免全表 getAll 到内存再 JS filter/sort。
+   * - 纯时间范围查询（无 domain 过滤）→ 直接走索引范围查询
+   * - 带 domain 过滤 → 仍需 getAll 后 JS filter（IndexedDB 索引无法做跨字段 AND）
+   * - frequent 排序 → 需 getAll 后 JS sort（无 visitCount 索引）
+   */
   async list(input: PageListInput = {}): Promise<PageRecord[]> {
     const db = await this.dbPromise;
-    let records = await dbGetAll<PageRecord>(db, 'pages');
+    const offset = input.offset ?? 0;
+    const limit = input.limit ?? Number.MAX_SAFE_INTEGER;
+    const sort = input.sort ?? 'recent';
 
-    if (input.from !== undefined) records = records.filter((r) => r.lastVisitedAt >= input.from!);
-    if (input.to !== undefined) records = records.filter((r) => r.lastVisitedAt <= input.to!);
-    if (input.domain) {
-      const d = input.domain.toLowerCase();
-      records = records.filter((r) => r.domain === d || r.domain.endsWith('.' + d) || d.endsWith('.' + r.domain));
+    // frequent 排序需要 visitCount，没有对应索引，只能全量加载后排序
+    if (sort === 'frequent') {
+      let records = await dbGetAll<PageRecord>(db, 'pages');
+      records = this.applyFilters(records, input);
+      records.sort((a, b) => b.visitCount - a.visitCount || b.lastVisitedAt - a.lastVisitedAt);
+      return records.slice(offset, offset + limit);
     }
 
-    const sort = input.sort ?? 'recent';
-    records.sort((a, b) => {
-      if (sort === 'frequent') {
-        return b.visitCount - a.visitCount || b.lastVisitedAt - a.lastVisitedAt;
-      }
-      return b.lastVisitedAt - a.lastVisitedAt;
-    });
+    // recent 排序 + 无 domain 过滤 → 走 lastVisitedAt 索引范围查询
+    if (!input.domain) {
+      const range = this.buildTimeRange(input);
+      // 索引按 lastVisitedAt 升序，reverse=true 得到降序（最近优先）
+      const fetchLimit = offset + limit; // 多取 offset 条用于切片
+      const records = await dbGetAllByIndexRange<PageRecord>(
+        db, 'pages', 'lastVisitedAt', range,
+        { limit: Number.isFinite(fetchLimit) ? fetchLimit : undefined, reverse: true },
+      );
+      return records.slice(offset, offset + limit);
+    }
 
-    const offset = input.offset ?? 0;
-    const limit = input.limit ?? records.length;
+    // 带 domain 过滤 → 需全量加载后 JS filter（IndexedDB 无法跨字段 AND）
+    let records = await dbGetAll<PageRecord>(db, 'pages');
+    records = this.applyFilters(records, input);
+    records.sort((a, b) => b.lastVisitedAt - a.lastVisitedAt);
     return records.slice(offset, offset + limit);
+  }
+
+  /** 构建 lastVisitedAt 的 IDBKeyRange（from ~ to） */
+  private buildTimeRange(input: PageListInput): IDBKeyRange | undefined {
+    const from = input.from;
+    const to = input.to;
+    if (from !== undefined && to !== undefined) return IDBKeyRange.bound(from, to);
+    if (from !== undefined) return IDBKeyRange.lowerBound(from);
+    if (to !== undefined) return IDBKeyRange.upperBound(to);
+    return undefined;
+  }
+
+  /** JS 内存过滤（domain + 时间），用于无法走索引的场景 */
+  private applyFilters(records: PageRecord[], input: PageListInput): PageRecord[] {
+    let filtered = records;
+    if (input.from !== undefined) filtered = filtered.filter((r) => r.lastVisitedAt >= input.from!);
+    if (input.to !== undefined) filtered = filtered.filter((r) => r.lastVisitedAt <= input.to!);
+    if (input.domain) {
+      const d = input.domain.toLowerCase();
+      filtered = filtered.filter((r) => r.domain === d || r.domain.endsWith('.' + d) || d.endsWith('.' + r.domain));
+    }
+    return filtered;
   }
 
   async deleteById(id: string): Promise<void> {
@@ -111,14 +153,10 @@ export class PageRepository {
     await dbDelete(db, 'pages', id);
   }
 
+  /** 按时间范围删除（使用索引游标，不全量加载到内存） */
   async deleteBefore(timestamp: number): Promise<number> {
     const db = await this.dbPromise;
-    const all = await dbGetAll<PageRecord>(db, 'pages');
-    const stale = all.filter((r) => r.lastVisitedAt < timestamp);
-    for (const record of stale) {
-      await dbDelete(db, 'pages', record.id);
-    }
-    return stale.length;
+    return dbDeleteByIndexRange(db, 'pages', 'lastVisitedAt', IDBKeyRange.upperBound(timestamp));
   }
 
   async deleteAll(): Promise<void> {
@@ -131,13 +169,11 @@ export class PageRepository {
     return dbCount(db, 'pages');
   }
 
+  /** 批量按 ID 读取（单事务，避免 N 次独立事务） */
   async getByIds(ids: string[]): Promise<PageRecord[]> {
-    const results: PageRecord[] = [];
-    for (const id of ids) {
-      const record = await this.findById(id);
-      if (record) results.push(record);
-    }
-    return results;
+    if (ids.length === 0) return [];
+    const db = await this.dbPromise;
+    return dbGetBatch<PageRecord>(db, 'pages', ids);
   }
 }
 

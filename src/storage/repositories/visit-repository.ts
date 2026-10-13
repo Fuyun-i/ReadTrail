@@ -3,10 +3,12 @@
 import type { VisitRecord } from '../../shared/types';
 import {
   openDatabase,
+  dbGetAll,
   dbGetAllByIndex,
   dbPut,
   dbDelete,
   dbClear,
+  dbCountByIndex,
   DB_NAME,
   DB_VERSION,
 } from '../db';
@@ -37,10 +39,16 @@ export class VisitRepository {
     return records.sort((a, b) => a.startedAt - b.startedAt);
   }
 
+  /** 获取全部访问记录（用于备份导出，单次 getAll 替代 N+1 查询） */
+  async listAll(): Promise<VisitRecord[]> {
+    const db = await this.dbPromise;
+    return dbGetAll<VisitRecord>(db, 'visits');
+  }
+
+  /** 按 pageId 计数（使用索引 count，不加载记录数据） */
   async countByPageId(pageId: string): Promise<number> {
     const db = await this.dbPromise;
-    const records = await dbGetAllByIndex<VisitRecord>(db, 'visits', 'pageId', pageId);
-    return records.length;
+    return dbCountByIndex(db, 'visits', 'pageId', pageId);
   }
 
   async deleteByPageId(pageId: string): Promise<void> {

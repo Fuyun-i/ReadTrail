@@ -3,9 +3,10 @@
 // 不做数据管理；查询通过 OPEN_LIBRARY 消息携带到记录库。
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import type { SearchResult, SearchHighlight } from '../shared/types';
+import type { SearchResult } from '../shared/types';
 import { api } from '../ui/api';
 import { formatDate } from '../ui/utils';
+import { renderHighlighted } from '../ui/highlight';
 
 const POPUP_RESULT_LIMIT = 8; // 小窗口只显示少量结果（product-design 3.2）
 
@@ -134,32 +135,4 @@ export default function PopupApp() {
       </footer>
     </div>
   );
-}
-
-/** 与记录库一致的安全高亮渲染 */
-function renderHighlighted(text: string, highlights: SearchHighlight[], field: string) {
-  const ranges = highlights
-    .filter((h) => h.field === field && Number.isFinite(h.start) && Number.isFinite(h.end) && h.end > h.start)
-    .map((h) => ({ start: Math.max(0, Math.min(h.start, text.length)), end: Math.max(0, Math.min(h.end, text.length)) }))
-    .filter((h) => h.end > h.start)
-    .sort((a, b) => a.start - b.start || a.end - b.end);
-
-  if (ranges.length === 0 || !text) return text;
-
-  const merged: Array<{ start: number; end: number }> = [];
-  for (const r of ranges) {
-    const last = merged[merged.length - 1];
-    if (last && r.start <= last.end) last.end = Math.max(last.end, r.end);
-    else merged.push({ ...r });
-  }
-
-  const nodes: Array<string | JSX.Element> = [];
-  let cursor = 0;
-  merged.forEach((r, i) => {
-    if (r.start > cursor) nodes.push(text.slice(cursor, r.start));
-    nodes.push(<mark key={`h${i}`}>{text.slice(r.start, r.end)}</mark>);
-    cursor = r.end;
-  });
-  if (cursor < text.length) nodes.push(text.slice(cursor));
-  return nodes;
 }
