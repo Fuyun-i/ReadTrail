@@ -1,6 +1,6 @@
 <div align="center">
 
-# ReadTrail
+# 🔍ReadTrail · 读过即存，一搜即回
 
 **Find what you've read.** 找回你读过的网页。
 
@@ -214,6 +214,6 @@ npm run build       # 通过
 ---
 
 <div align="center">
-**ReadTrail** — 你读过的每一页，都值得被找回。
+**🔍ReadTrail** — 你读过的每一页，都值得被找回。
 
 </div>
