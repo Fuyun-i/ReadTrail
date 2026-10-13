@@ -10,7 +10,7 @@ const TIME_PHRASES: Array<{ pattern: RegExp; days: number }> = [
   { pattern: /今天|today/i, days: 1 },
   { pattern: /上月|上个月|last month/i, days: 30 },
   { pattern: /最近三天|最近3天|last 3 days/i, days: 3 },
-  { pattern: /最近一周|最近一周|last 7 days/i, days: 7 },
+  { pattern: /最近一周|最近7天|last 7 days/i, days: 7 },
   { pattern: /最近一月|最近一个月|last 30 days/i, days: 30 },
   { pattern: /三个月前|近三个月|last 3 months/i, days: 90 },
   { pattern: /半年|last 6 months/i, days: 180 },

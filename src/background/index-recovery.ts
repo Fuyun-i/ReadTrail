@@ -2,6 +2,7 @@
 // 目标：SW 重启后无需手动重建即可搜索。
 // 原则：IndexedDB 为准，内存索引只是可重建缓存。
 // 保证：恢复失败不删数据、只置 needsRebuild；并发请求合并为单次重建。
+// 优化：使用 lastVisitedAt 索引有序遍历，避免全表 getAll 加载。
 
 import type { PageRepository } from '../storage/repositories/page-repository';
 import type { SearchProvider } from '../search/search-provider';
@@ -54,7 +55,8 @@ export class IndexRecovery {
 
   private async run(): Promise<void> {
     await this.pages.ready();
-    const all = await this.pages.list({ limit: Number.MAX_SAFE_INTEGER });
+    // 走 lastVisitedAt 索引有序遍历，避免全表 getAll
+    const all = await this.pages.list({ sort: 'recent', limit: Number.MAX_SAFE_INTEGER });
     await this.search.rebuild(all);
   }
 }

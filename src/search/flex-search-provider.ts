@@ -38,14 +38,21 @@ async function getIndexCtor(): Promise<new () => FlexIndex> {
 }
 
 function newIndex(): FlexIndex {
-  // encode 自定义：用我们的分词器切好 token 再交给 flexsearch（split 固定为空格）
-  const host = globalThis as { __yuehouIndexCtor?: new () => FlexIndex };
-  const Ctor = host.__yuehouIndexCtor;
+  const host = globalThis as { __readtrailIndexCtor?: new () => FlexIndex };
+  const Ctor = host.__readtrailIndexCtor;
   if (!Ctor) throw new Error('flexsearch not initialized');
   return new Ctor();
 }
 
-export type PageFetcher = (ids: string[]) => Promise<PageRecord[]>;
+/**
+ * 页面获取回调。
+ * - ids 非空：按 ID 批量回读（搜索命中后取完整记录）
+ * - ids 为空：返回最近访问的页面（空查询场景），listOptions 携带分页与过滤参数
+ */
+export type PageFetcher = (
+  ids: string[],
+  listOptions?: { limit?: number; offset?: number; sort?: 'recent' | 'frequent'; from?: number; to?: number; domain?: string },
+) => Promise<PageRecord[]>;
 
 type FieldName = 'title' | 'domain' | 'excerpt' | 'text';
 
@@ -60,7 +67,7 @@ export class FlexSearchProvider implements SearchProvider {
   async init(): Promise<void> {
     if (this.indexes) return;
     const Ctor = await getIndexCtor();
-    (globalThis as { __yuehouIndexCtor?: new () => FlexIndex }).__yuehouIndexCtor = Ctor;
+    (globalThis as { __readtrailIndexCtor?: new () => FlexIndex }).__readtrailIndexCtor = Ctor;
     this.indexes = {
       title: newIndex(),
       domain: newIndex(),
@@ -116,7 +123,7 @@ export class FlexSearchProvider implements SearchProvider {
     const offset = input.offset ?? 0;
     const query = input.query.trim();
 
-    // 空查询 → 直接走数据库排序（最近访问）
+    // 空查询 → 直接走数据库排序（最近访问），只取需要的条数
     if (!query) {
       return this.emptyQueryResults(input, offset, limit);
     }
@@ -216,16 +223,22 @@ export class FlexSearchProvider implements SearchProvider {
   }
 
   private async emptyQueryResults(input: SearchInput, offset: number, limit: number): Promise<SearchResult[]> {
-    const pages = await this.fetchPages([]);
+    // 优化：不再调 fetchPages([]) 拉全量数据，而是传入 limit/offset/sort 让 SW 侧走索引查询
+    const pages = await this.fetchPages([], {
+      limit: offset + limit,
+      offset: 0,
+      sort: 'recent',
+      from: input.from,
+      to: input.to,
+      domain: input.domain,
+    });
+
     const filtered = pages
       .filter((p) => {
-        if (input.from !== undefined && p.lastVisitedAt < input.from) return false;
-        if (input.to !== undefined && p.lastVisitedAt > input.to) return false;
         if (input.domain && !matchesAnyDomain(p.domain, input.domain)) return false;
         if (input.source && p.source !== input.source) return false;
         return true;
       })
-      .sort((a, b) => b.lastVisitedAt - a.lastVisitedAt)
       .slice(offset, offset + limit);
 
     return filtered.map((page) => ({

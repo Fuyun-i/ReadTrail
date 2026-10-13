@@ -34,7 +34,7 @@
 ### 📖 后台自动记录
 - **智能正文提取**：Readability 算法 → 语义区域（`article`/`main`/`[role="main"]`）→ 可见文本，三级降级策略，适配绝大多数网页
 - **真实的阅读判定**：只统计页面**可见时**的前台时间（切到别的标签页不计时），配合滚动比例，避免「开着页面干别的事」被误记
-- **SPA 友好**：监听 `pushState`/`popstate`，单页应用切换路由后重新独立计时
+- **SPA 友好**：监听 `pushState`/`popstate` + `MutationObserver` 监听 title 变化，单页应用切换路由后重新独立计时
 - **阈值可调**：默认 10 秒有效阅读 + 25% 滚动 + 300 字符正文，全部可在设置中修改
 
 ### 🔍 快速找回
@@ -46,10 +46,11 @@
 - **一键续查**：在小窗口搜索后点「打开记录库」，查询自动带到完整界面
 
 ### 📚 独立记录库
-- 完整搜索（相关度 / 最近访问 / 访问次数排序，域名筛选，关键词高亮）
-- 历史列表、正文预览、单条删除
+- 完整搜索（相关度 / 最近访问 / 访问次数排序，域名筛选 debounce 自动搜索，关键词高亮）
+- 历史列表（分页加载更多）、正文预览（展开全文）、单条删除
 - JSON 备份导出/导入（merge 合并 / replace 替换）、Markdown 导出
 - 索引健康检查与一键重建
+- 设置页完整控件：阅读时长、滚动比例、正文最短长度、保留天数、搜索结果上限、排除/允许域名
 
 ### 🛡️ 隐私优先
 | 保护 | 说明 |
@@ -65,6 +66,7 @@
 - 右键菜单「立即保存此页」：无视阅读阈值手动保存（仍遵守隐私规则）
 - 按 `lastVisitedAt` 自动清理过期数据（`retentionDays` 可选配置）
 - Service Worker 重启后索引自动恢复，无需手动干预
+- React Error Boundary 包裹 library 和 popup，渲染异常不白屏
 
 ## 📦 安装
 
@@ -119,9 +121,10 @@ domain:github.com node   # 限定 github.com 域名
 | 最少阅读时长 | 10 秒 | 页面可见时的累计前台时间 |
 | 最少滚动比例 | 25% | 判定「真的在读」 |
 | 正文最短长度 | 300 字符 | 过短的页面不保存 |
+| 保留天数 | 不启用 | 按最近访问时间自动清理过期记录 |
+| 搜索结果上限 | 30 | 每次搜索返回的最大结果数 |
 | 排除域名 | 空 | 这些域名不记录 |
 | 允许域名 | 空 | 覆盖排除域名（但不能覆盖敏感页面/无痕保护） |
-| 保留天数 | 不启用 | 按最近访问时间自动清理过期记录 |
 
 ### 数据管理
 
@@ -151,6 +154,7 @@ Service Worker（隐私策略 / 采集协调 / 消息路由 / 备份 / 索引恢
 - **中文检索**：FlexSearch 字段索引（标题/域名/摘要/正文）+ CJK 单字与二元组分词，查询结果始终从 IndexedDB 回读完整记录
 - **消息协议**：所有扩展页请求携带 `requestId`，响应经运行时校验；未知消息、非法载荷返回结构化错误码
 - **崩溃恢复**：IndexedDB 为唯一事实来源，内存索引只是缓存——Service Worker 休眠/重启后自动重建，搜索不中断
+- **性能优化**：IndexedDB 索引查询（`lastVisitedAt`/`domain`）+ `IDBKeyRange` + 游标分页，避免全表 `getAll` + JS filter
 
 ### 目录结构
 
@@ -159,6 +163,7 @@ ReadTrail/
 ├── manifest.config.mjs    # MV3 manifest 生成配置
 ├── scripts/build.mjs      # esbuild 构建脚本（4 个入口）
 ├── public/                # 静态资源（HTML / CSS / 图标）
+├── .github/workflows/     # CI（typecheck + test + build）
 └── src/
     ├── background/        # Service Worker：协调器、隐私策略、路由、备份、恢复、清理
     ├── content/           # 内容脚本：阅读观察、正文提取、上报
@@ -166,7 +171,7 @@ ReadTrail/
     ├── search/            # FlexSearch 提供者、查询解析（时间/域名/CJK 分词）
     ├── library/           # 记录库界面（React：搜索/历史/设置/预览）
     ├── popup/             # 工具栏搜索小窗口（React）
-    ├── ui/                # 界面共用 API 客户端与工具
+    ├── ui/                # 界面共用 API 客户端、工具、高亮组件、Error Boundary
     └── shared/            # 类型、消息协议、错误码、URL 规范化
 ```
 
@@ -178,6 +183,8 @@ npm run build      # 构建到 dist/
 npm run dev        # watch 模式（改动后自动重建）
 npm run typecheck  # TypeScript 严格模式检查
 npm test           # 运行单元测试（vitest）
+npm run lint       # ESLint 检查
+npm run format     # Prettier 格式化
 ```
 
 ### 单元测试
@@ -189,10 +196,48 @@ npm test           # 运行单元测试（vitest）
 - URL 规范化 / 敏感 URL / 浏览器内部页判断（`url`）
 - 备份导入导出校验（`backup-service`）
 - 隐私策略（自动与手动保存的例外规则）
+- 消息路由（`message-router`）
+- 搜索提供者（`search-provider`）
 
 提交前请保证 `npm run typecheck` 与 `npm test` 全部通过。
 
 ## 📋 更新日志
+
+### v0.4.0
+
+**性能优化（P0）**
+- `PageRepository.list()` 改用 IndexedDB 索引查询（`lastVisitedAt`/`domain` 索引 + `IDBKeyRange` + 游标分页），替代全表 `getAll` + JS filter
+- `PageRepository.getByIds()` 改为单事务批量读取，N 个 `get()` 共享一个 transaction
+- `FlexSearchProvider.emptyQueryResults()` 改为轻量路径，不再加载全部页面只为返回 8 条
+- `IndexRecovery` 索引重建走 `lastVisitedAt` 索引有序遍历，避免全表 `getAll`
+- `RetentionCleaner` 用 `IDBKeyRange.upperBound(cutoff)` 直接定位过期记录，不全量加载
+- `BackupService` 导出 visits 改为批量查询（单次 `getAll` + 内存分组），消除 N+1
+- `VisitRepository.countByPageId` 改用索引 `count()`，不加载记录数据
+
+**代码质量（P1）**
+- 抽取 `renderHighlighted` 到 `ui/highlight.tsx`，SearchTab 和 PopupApp 共用
+- 全局替换 `yuehou` → `readtrail`（DB_NAME、backup format、menu ID）
+- 删除 `service-worker.ts` 中不可达的 `handleWorkerMessage` `CAPTURE_CANDIDATE` case
+- SettingsTab 补齐 `retentionDays`、`searchResultLimit`、`minTextLength` 输入控件
+- 修复 QueryParser 时间短语重复 pattern（`最近一周` 出现两次 → 改为 `最近一周|最近7天`）
+- `demo-shim.ts` 改为动态 `import()`，构建时不打入生产包
+- `blobToBase64` 改用安全实现（分块 `String.fromCharCode.apply`），避免 spread 栈溢出
+- 整理 `service-worker.ts` 代码顺序，辅助函数移到使用处之前
+
+**架构增强（P2）**
+- 添加 React Error Boundary 组件，包裹 library 和 popup，渲染异常不白屏
+- `formatDuration` 支持分钟/小时人类可读格式（`7m30s`、`1h20m`）
+- HistoryTab 添加「加载更多」分页按钮
+- 域名筛选框添加 debounce（300ms）自动搜索
+- Content Script 提前检查 `minTextLength`，避免无谓消息通信
+- PreviewModal 添加「展开全文」按钮
+- SPA 路由检测补充 `MutationObserver` 监听 title 变化
+
+**测试与工程化（P3）**
+- 添加 MessageRouter 单元测试（8 个用例）
+- 添加 FlexSearchProvider 单元测试（5 个用例）
+- 添加 GitHub Actions CI（typecheck + test + build）
+- 添加 ESLint + Prettier 配置
 
 ### v0.3.0
 - 新增单元测试（vitest，46 个用例），覆盖阈值判定、分词、URL/隐私策略、备份校验

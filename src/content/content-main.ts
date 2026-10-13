@@ -18,7 +18,7 @@ let lastCapturedRouteVersion = -1; // 每个 SPA 路由只自动保存一次
 let capturing = false;
 
 // 用户阈值（development-plan 4.1）：初始默认，随后从后台读取；读取失败保持默认
-let threshold = { minReadingDurationMs: 10_000, minScrollRatio: 0.25 };
+let threshold = { minReadingDurationMs: 10_000, minScrollRatio: 0.25, minTextLength: 300 };
 // 自动记录开关（E-021/E-023）：内容脚本在提取前判断；关闭时不观察、不提取、不提交
 let autoEnabled = true;
 let thresholdLoaded = false;
@@ -34,6 +34,7 @@ async function loadThreshold(): Promise<void> {
       threshold = {
         minReadingDurationMs: Number(response.data.minReadingDurationMs) || threshold.minReadingDurationMs,
         minScrollRatio: Number(response.data.minScrollRatio) || threshold.minScrollRatio,
+        minTextLength: Number(response.data.minTextLength) || threshold.minTextLength,
       };
       if (typeof response.data.enabled === 'boolean') autoEnabled = response.data.enabled;
     }
@@ -64,6 +65,10 @@ async function maybeCapture(snapshot: ReadingSnapshot): Promise<void> {
   capturing = true;
   try {
     const article = await extractArticle();
+
+    // 提前检查 minTextLength：正文太短就不发消息，避免无谓的 SW 通信
+    if (article.text.length < threshold.minTextLength) return;
+
     const candidate: Omit<CaptureCandidate, 'tabId' | 'windowId' | 'isIncognito'> = {
       url: article.url,
       title: article.title,

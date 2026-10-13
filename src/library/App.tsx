@@ -32,7 +32,7 @@ export default function App() {
   const {
     query, setQuery, domainFilter, setDomainFilter, sort, setSort,
     results, pages, loading, error, setError,
-    runSearch, searchWith, loadRecent, removeFromLists,
+    hasMore, runSearch, searchWith, loadRecent, loadMore, removeFromLists,
   } = useSearch();
 
   const { settings, health, loadSettings, applySaved, applyRebuilt } = useSettings(setError);
@@ -124,7 +124,15 @@ export default function App() {
       )}
 
       {tab === 'history' && (
-        <HistoryTab pages={pages} loading={loading} onOpen={openPage} onPreview={showPreview} onDelete={removePage} />
+        <HistoryTab
+          pages={pages}
+          loading={loading}
+          hasMore={hasMore}
+          onOpen={openPage}
+          onPreview={showPreview}
+          onDelete={removePage}
+          onLoadMore={() => void loadMore()}
+        />
       )}
 
       {tab === 'settings' && settings && (

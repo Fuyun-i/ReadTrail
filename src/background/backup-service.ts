@@ -6,14 +6,15 @@ import type {
   ImportReport,
   PageRecord,
   VisitRecord,
-} from '../shared/types';import type { PageRepository } from '../storage/repositories/page-repository';
+} from '../shared/types';
+import type { PageRepository } from '../storage/repositories/page-repository';
 import type { VisitRepository } from '../storage/repositories/visit-repository';
 import type { SearchProvider } from '../search/search-provider';
 
 const BACKUP_FORMAT_VERSION = 1;
 
 export type BackupPayload = {
-  format: 'yuehou-backup';
+  format: 'readtrail-backup';
   version: number;
   exportedAt: number;
   pages: PageRecord[];
@@ -36,17 +37,17 @@ export class BackupService {
     }
 
     const payload: BackupPayload = {
-      format: 'yuehou-backup',
+      format: 'readtrail-backup',
       version: BACKUP_FORMAT_VERSION,
       exportedAt: Date.now(),
       pages: records,
     };
     if (options.includeVisits) {
-      const visits: VisitRecord[] = [];
-      for (const record of records) {
-        visits.push(...(await this.visits.listByPageId(record.id)));
-      }
-      payload.visits = visits;
+      // 优化：单次 getAll 获取全部 visits，在内存中按 pageId 分组，
+      // 替代原来对每个 page 单独查询的 N+1 模式
+      const allVisits = await this.visits.listAll();
+      const pageIdSet = new Set(records.map((r) => r.id));
+      payload.visits = allVisits.filter((v) => v.pageId && pageIdSet.has(v.pageId));
     }
     return new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   }
@@ -63,7 +64,9 @@ export class BackupService {
     }
 
     const payload = parsed as Partial<BackupPayload>;
-    if (payload.format !== 'yuehou-backup' || !Array.isArray(payload.pages)) {
+    // 兼容旧版 yuehou-backup 格式名
+    const isBackup = payload.format === 'readtrail-backup' || payload.format === 'yuehou-backup';
+    if (!isBackup || !Array.isArray(payload.pages)) {
       report.errors.push({ index: -1, message: '备份格式不正确（缺少 format 或 pages）' });
       return report;
     }

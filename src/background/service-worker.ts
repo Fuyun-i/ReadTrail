@@ -16,19 +16,106 @@ import { BackupService } from './backup-service';
 import { IndexRecovery } from './index-recovery';
 import { RetentionCleaner } from './retention-cleaner';
 
+// ---- 辅助函数 ----
+
+function clampInt(value: number | undefined, min: number, max: number, fallback: number): number {
+  if (value === undefined || !Number.isFinite(value)) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(value)));
+}
+
+function normalizeDomain(domain: string): string {
+  return domain.trim().toLowerCase().replace(/^www\./, '');
+}
+
+/** 安全的 Blob → base64 编码，避免 String.fromCharCode spread 栈溢出 */
+async function blobToBase64(blob: Blob): Promise<string> {
+  const buffer = await blob.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000; // 32KB per chunk
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
+    // 使用 apply 而非 spread，避免大数组的栈溢出
+    binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
+  }
+  return btoa(binary);
+}
+
+// ---- 搜索输入归一化（development-plan 3.2 / 3.3）----
+// 1. 用户设置中的 searchResultLimit 作为默认/上限，不在 UI 和 Provider 各自写死。
+// 2. QueryParser 解析 domain: 语法与时间短语；解析失败退回原始关键词，不阻断搜索。
+// 3. 域名合并规则：独立筛选框与查询内 domain: 取并集（OR）。
+// 4. 时间取交集；limit/offset 归一化为非整数安全值。
+
+async function normalizeSearchInput(raw: SearchInput): Promise<SearchInput> {
+  const settings = await settingsRepo.get();
+  const cap = settings.searchResultLimit;
+  const offset = clampInt(raw.offset, 0, Number.MAX_SAFE_INTEGER, 0);
+
+  // QueryParser：解析失败退回原始查询
+  let text = typeof raw.query === 'string' ? raw.query : '';
+  let parsedFrom: number | undefined;
+  let parsedTo: number | undefined;
+  const parserDomains: string[] = [];
+  try {
+    const parsed = await queryParser.parse(text);
+    text = parsed.text;
+    parsedFrom = parsed.from;
+    parsedTo = parsed.to;
+    if (parsed.domains) parserDomains.push(...parsed.domains);
+  } catch {
+    // 保留原始 text
+  }
+
+  // 域名 OR 合并：筛选框 + 查询内 domain:（去重、小写、去 www 前缀）
+  const domains = new Set<string>();
+  if (raw.domain?.trim()) domains.add(normalizeDomain(raw.domain));
+  for (const d of parserDomains) domains.add(normalizeDomain(d));
+
+  // 时间交集
+  const from = raw.from !== undefined && parsedFrom !== undefined
+    ? Math.max(raw.from, parsedFrom)
+    : raw.from ?? parsedFrom;
+  const to = raw.to !== undefined && parsedTo !== undefined
+    ? Math.min(raw.to, parsedTo)
+    : raw.to ?? parsedTo;
+
+  const searchInput: SearchInput = {
+    query: text,
+    from,
+    to,
+    domain: domains.size ? [...domains].join('|') : undefined, // provider 侧按 OR 展开
+    limit: clampInt(raw.limit, 1, cap, cap),
+    offset,
+    sort: raw.sort ?? 'relevance',
+  };
+  if (raw.source) searchInput.source = raw.source;
+  return searchInput;
+}
+
 // ---- 单例装配（SW 重启后从 IndexedDB 恢复，不依赖内存状态之外的任何东西）----
 const pageRepo = new PageRepository();
 const visitRepo = new VisitRepository();
 const settingsRepo = new SettingsRepository();
-const searchProvider = new FlexSearchProvider(async (ids: string[]) => {
-  if (ids.length === 0) return pageRepo.list({ limit: Number.MAX_SAFE_INTEGER });
+const queryParser = new QueryParser();
+const searchProvider = new FlexSearchProvider(async (ids: string[], listOptions) => {
+  if (ids.length === 0) {
+    // 空查询场景：走索引查询，只取需要的条数，不全量加载
+    return pageRepo.list({
+      limit: listOptions?.limit ?? 30,
+      offset: listOptions?.offset ?? 0,
+      sort: listOptions?.sort ?? 'recent',
+      from: listOptions?.from,
+      to: listOptions?.to,
+      domain: listOptions?.domain,
+    });
+  }
   return pageRepo.getByIds(ids);
 });
 const privacy = new PrivacyPolicy(() => settingsRepo.get());
 const coordinator = new CaptureCoordinator(privacy, pageRepo, visitRepo, settingsRepo, searchProvider);
 const backupService = new BackupService(pageRepo, visitRepo, searchProvider);
 const router = new MessageRouter();
-const queryParser = new QueryParser();
 const indexRecovery = new IndexRecovery(pageRepo, searchProvider);
 const retentionCleaner = new RetentionCleaner(pageRepo, visitRepo, settingsRepo, searchProvider);
 
@@ -38,7 +125,7 @@ void indexRecovery.ensureRecovered();
 void retentionCleaner.clean().catch(() => {});
 
 // ---- 右键菜单 ----
-const MENU_SAVE_ID = 'yuehou-save-now';
+const MENU_SAVE_ID = 'readtrail-save-now';
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
@@ -105,6 +192,7 @@ async function handleRuntimeMessage(
         data: {
           minReadingDurationMs: s.minReadingDurationMs,
           minScrollRatio: s.minScrollRatio,
+          minTextLength: s.minTextLength,
           enabled: s.enabled,
         },
       };
@@ -161,8 +249,6 @@ async function handleRuntimeMessage(
 
 async function handleWorkerMessage(message: WorkerMessage): Promise<unknown> {
   switch (message.type) {
-    case 'CAPTURE_CANDIDATE':
-      return coordinator.handleCandidate(message.payload);
     case 'SEARCH': {
       // 等待启动恢复完成后再执行查询：避免重启后短暂搜不到历史记录
       await indexRecovery.ensureRecovered();
@@ -257,77 +343,5 @@ router.register('OPEN_LIBRARY', handleWorkerMessage);
 
 // 导出给测试使用
 export { router, pageRepo, visitRepo, settingsRepo, searchProvider, coordinator, handleWorkerMessage, normalizeSearchInput, indexRecovery, retentionCleaner };
-
-async function blobToBase64(blob: Blob): Promise<string> {
-  const buffer = await blob.arrayBuffer();
-  let binary = '';
-  const bytes = new Uint8Array(buffer);
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-  }
-  return btoa(binary);
-}
-
-// ---- 搜索输入归一化（development-plan 3.2 / 3.3）----
-// 1. 用户设置中的 searchResultLimit 作为默认/上限，不在 UI 和 Provider 各自写死。
-// 2. QueryParser 解析 domain: 语法与时间短语；解析失败退回原始关键词，不阻断搜索。
-// 3. 域名合并规则：独立筛选框与查询内 domain: 取并集（OR）。
-// 4. 时间取交集；limit/offset 归一化为非整数安全值。
-
-async function normalizeSearchInput(raw: SearchInput): Promise<SearchInput> {
-  const settings = await settingsRepo.get();
-  const cap = settings.searchResultLimit;
-  const offset = clampInt(raw.offset, 0, Number.MAX_SAFE_INTEGER, 0);
-
-  // QueryParser：解析失败退回原始查询
-  let text = typeof raw.query === 'string' ? raw.query : '';
-  let parsedFrom: number | undefined;
-  let parsedTo: number | undefined;
-  const parserDomains: string[] = [];
-  try {
-    const parsed = await queryParser.parse(text);
-    text = parsed.text;
-    parsedFrom = parsed.from;
-    parsedTo = parsed.to;
-    if (parsed.domains) parserDomains.push(...parsed.domains);
-  } catch {
-    // 保留原始 text
-  }
-
-  // 域名 OR 合并：筛选框 + 查询内 domain:（去重、小写、去 www 前缀）
-  const domains = new Set<string>();
-  if (raw.domain?.trim()) domains.add(normalizeDomain(raw.domain));
-  for (const d of parserDomains) domains.add(normalizeDomain(d));
-
-  // 时间交集
-  const from = raw.from !== undefined && parsedFrom !== undefined
-    ? Math.max(raw.from, parsedFrom)
-    : raw.from ?? parsedFrom;
-  const to = raw.to !== undefined && parsedTo !== undefined
-    ? Math.min(raw.to, parsedTo)
-    : raw.to ?? parsedTo;
-
-  const searchInput: SearchInput = {
-    query: text,
-    from,
-    to,
-    domain: domains.size ? [...domains].join('|') : undefined, // provider 侧按 OR 展开
-    limit: clampInt(raw.limit, 1, cap, cap),
-    offset,
-    sort: raw.sort ?? 'relevance',
-  };
-  if (raw.source) searchInput.source = raw.source;
-  return searchInput;
-}
-
-function clampInt(value: number | undefined, min: number, max: number, fallback: number): number {
-  if (value === undefined || !Number.isFinite(value)) return fallback;
-  return Math.max(min, Math.min(max, Math.floor(value)));
-}
-
-function normalizeDomain(domain: string): string {
-  return domain.trim().toLowerCase().replace(/^www\./, '');
-}
 
 export type { PageRecord, WorkerResponse };

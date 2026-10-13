@@ -17,6 +17,9 @@ export function SettingsTab(props: {
   const [enabled, setEnabled] = useState(settings.enabled);
   const [minSeconds, setMinSeconds] = useState(Math.round(settings.minReadingDurationMs / 1000));
   const [minScroll, setMinScroll] = useState(Math.round(settings.minScrollRatio * 100));
+  const [minTextLength, setMinTextLength] = useState(settings.minTextLength);
+  const [retentionDays, setRetentionDays] = useState(settings.retentionDays);
+  const [searchResultLimit, setSearchResultLimit] = useState(settings.searchResultLimit);
   const [excluded, setExcluded] = useState(settings.excludedDomains.join(', '));
   const [included, setIncluded] = useState(settings.includedDomains.join(', '));
   const [importMode, setImportMode] = useState<'merge' | 'replace'>('merge');
@@ -34,6 +37,9 @@ export function SettingsTab(props: {
         enabled,
         minReadingDurationMs: minSeconds * 1000,
         minScrollRatio: minScroll / 100,
+        minTextLength,
+        retentionDays,
+        searchResultLimit,
         excludedDomains: excluded.split(/[,，\s]+/).filter(Boolean),
         includedDomains: included.split(/[,，\s]+/).filter(Boolean),
       });
@@ -106,6 +112,18 @@ export function SettingsTab(props: {
       <label className="row">
         最少滚动比例（%）
         <input type="number" min={0} max={100} value={minScroll} onChange={(e) => setMinScroll(Number(e.target.value))} />
+      </label>
+      <label className="row">
+        最少正文长度（字符）
+        <input type="number" min={0} step={100} value={minTextLength} onChange={(e) => setMinTextLength(Number(e.target.value))} />
+      </label>
+      <label className="row">
+        数据保留天数（0 = 永久保留）
+        <input type="number" min={0} step={1} value={retentionDays} onChange={(e) => setRetentionDays(Number(e.target.value))} />
+      </label>
+      <label className="row">
+        搜索结果上限
+        <input type="number" min={1} step={1} value={searchResultLimit} onChange={(e) => setSearchResultLimit(Number(e.target.value))} />
       </label>
       <label className="row">
         排除域名（逗号分隔）

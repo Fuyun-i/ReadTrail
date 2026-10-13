@@ -1,6 +1,6 @@
 {
   "name": "readtrail",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "🔍ReadTrail · 读过即存，一搜即回 — 自动记录读过的网页，本地检索，随时找回。",
   "type": "module",
@@ -8,7 +8,9 @@
     "dev": "node scripts/build.mjs --watch",
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "lint": "eslint src/ --ext .ts,.tsx",
+    "format": "prettier --write src/ tests/ scripts/"
   },
   "dependencies": {
     "@mozilla/readability": "^0.5.0",
@@ -20,7 +22,11 @@
     "@types/chrome": "^0.0.287",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
     "esbuild": "^0.21.5",
+    "eslint": "^9.0.0",
+    "prettier": "^3.3.0",
     "typescript": "^5.6.3",
     "vitest": "^4.1.11"
   },

@@ -1,6 +1,7 @@
 // ===== retentionDays 生命周期清理（development-plan 4.3）=====
 // 触发时机：SW 启动；按 lastVisitedAt 删除过期页面，同步删 visits 与索引。
 // 失败时保留可重试状态，不影响正常采集。
+// 优化：使用 IDBKeyRange.upperBound 直接定位过期记录，不全量加载到内存。
 
 import type { PageRepository } from '../storage/repositories/page-repository';
 import type { VisitRepository } from '../storage/repositories/visit-repository';
@@ -34,8 +35,9 @@ export class RetentionCleaner {
     if (!retentionDays || retentionDays <= 0) return 0;
 
     const cutoff = this.now() - retentionDays * 86_400_000;
-    const stale = (await this.pages.list({ to: cutoff, limit: Number.MAX_SAFE_INTEGER }))
-      .filter((p) => p.lastVisitedAt < cutoff);
+
+    // 先获取过期页面列表（用于删 visits 和索引），走索引范围查询
+    const stale = await this.pages.list({ to: cutoff, sort: 'recent', limit: Number.MAX_SAFE_INTEGER });
 
     for (const page of stale) {
       // 页面 → visits → 索引 顺序删除；单条失败跳过并继续，不阻塞其他清理
