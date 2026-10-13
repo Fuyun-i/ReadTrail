@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+output/
+
+# Tooling local state
+.playwright/
+.playwright-cli/
+.claude/
+
+# Logs & temp
+*.log
+*.tmp
+.tmp/
+
+# OS
+.DS_Store
+Thumbs.db
