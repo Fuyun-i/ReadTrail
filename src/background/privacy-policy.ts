@@ -41,7 +41,7 @@ export class PrivacyPolicy {
     // 4. 总开关（E-021）：暂停自动记录对所有普通站点生效，允许列表不能绕过；
     //    手动保存走 evaluateManual，不受此限制
     if (!settings.enabled) {
-      return { allowed: false, reason: 'insufficient-reading', matchedRule: 'disabled' };
+      return { allowed: false, reason: 'disabled', matchedRule: 'disabled' };
     }
 
     const domain = extractDomain(input.url);

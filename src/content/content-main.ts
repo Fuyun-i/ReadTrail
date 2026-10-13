@@ -62,7 +62,6 @@ async function maybeCapture(snapshot: ReadingSnapshot): Promise<void> {
   if (snapshot.maxScrollRatio < threshold.minScrollRatio) return;
 
   capturing = true;
-  lastCapturedRouteVersion = snapshot.routeVersion;
   try {
     const article = await extractArticle();
     const candidate: Omit<CaptureCandidate, 'tabId' | 'windowId' | 'isIncognito'> = {
@@ -75,8 +74,10 @@ async function maybeCapture(snapshot: ReadingSnapshot): Promise<void> {
       source: 'auto',
     };
     await chrome.runtime.sendMessage({ type: 'CAPTURE_CANDIDATE', payload: candidate });
+    // 只有发送成功才标记本路由已保存；SW 重启等失败场景下个周期重试
+    lastCapturedRouteVersion = snapshot.routeVersion;
   } catch {
-    // SW 重启中：忽略，下个周期不再重试（本路由已标记）
+    // SW 重启中：不标记 routeVersion，下个周期自动重试
   } finally {
     capturing = false;
   }

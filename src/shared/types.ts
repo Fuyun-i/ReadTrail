@@ -8,6 +8,7 @@ export type SkipReason =
   | 'private-window'
   | 'sensitive-domain'
   | 'browser-page'
+  | 'disabled'
   | 'insufficient-reading'
   | 'insufficient-content'
   | 'excluded-domain';
