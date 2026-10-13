@@ -9,6 +9,7 @@ import {
   dbGetAll,
   dbGetByIndex,
   dbGetAllByIndexRange,
+  dbGetAllByIndex,
   dbGetBatch,
   dbPut,
   dbDelete,
@@ -101,7 +102,7 @@ export class PageRepository {
    * 避免全表 getAll 到内存再 JS filter/sort。
    * - 纯时间范围查询（无 domain 过滤）→ 直接走索引范围查询
    * - 带 domain 过滤 → 仍需 getAll 后 JS filter（IndexedDB 索引无法做跨字段 AND）
-   * - frequent 排序 → 需 getAll 后 JS sort（无 visitCount 索引）
+
    */
   async list(input: PageListInput = {}): Promise<PageRecord[]> {
     const db = await this.dbPromise;
@@ -109,14 +110,23 @@ export class PageRepository {
     const limit = input.limit ?? Number.MAX_SAFE_INTEGER;
     const sort = input.sort ?? 'recent';
 
-    // frequent 排序需要 visitCount，没有对应索引，只能全量加载后排序
+    // frequent 排序：走 visitCount 降序索引，避免全量 getAll
     if (sort === 'frequent') {
+      // 无额外过滤时直接走索引，只取需要的条数
+      if (input.from === undefined && input.to === undefined && !input.domain) {
+        const fetchLimit = offset + limit;
+        const records = await dbGetAllByIndexRange<PageRecord>(
+          db, 'pages', 'visitCount', undefined,
+          { limit: Number.isFinite(fetchLimit) ? fetchLimit : undefined, reverse: true },
+        );
+        return records.slice(offset, offset + limit);
+      }
+      // 有过滤条件时仍需全量加载后 JS filter（无法跨字段 AND）
       let records = await dbGetAll<PageRecord>(db, 'pages');
       records = this.applyFilters(records, input);
       records.sort((a, b) => b.visitCount - a.visitCount || b.lastVisitedAt - a.lastVisitedAt);
       return records.slice(offset, offset + limit);
     }
-
     // recent 排序 + 无 domain 过滤 → 走 lastVisitedAt 索引范围查询
     if (!input.domain) {
       const range = this.buildTimeRange(input);
@@ -129,11 +139,23 @@ export class PageRepository {
       return records.slice(offset, offset + limit);
     }
 
-    // 带 domain 过滤 → 需全量加载后 JS filter（IndexedDB 无法跨字段 AND）
-    let records = await dbGetAll<PageRecord>(db, 'pages');
-    records = this.applyFilters(records, input);
-    records.sort((a, b) => b.lastVisitedAt - a.lastVisitedAt);
-    return records.slice(offset, offset + limit);
+    // 带 domain 过滤 → 优先走 domain 索引，避免全量 getAll
+    {
+      const d = input.domain.toLowerCase();
+      // 单域名时直接走 domain 索引，只加载该域名的记录
+      if (!d.includes('|')) {
+        let records = await dbGetAllByIndex<PageRecord>(db, 'pages', 'domain', d);
+        // 仍需 JS 过滤时间范围 + 子域名匹配
+        records = this.applyFilters(records, input);
+        records.sort((a, b) => b.lastVisitedAt - a.lastVisitedAt);
+        return records.slice(offset, offset + limit);
+      }
+      // 多域名（| 分隔）→ 回退到全量加载
+      let records = await dbGetAll<PageRecord>(db, 'pages');
+      records = this.applyFilters(records, input);
+      records.sort((a, b) => b.lastVisitedAt - a.lastVisitedAt);
+      return records.slice(offset, offset + limit);
+    }
   }
 
   /** 构建 lastVisitedAt 的 IDBKeyRange（from ~ to） */

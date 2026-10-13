@@ -136,9 +136,8 @@ export class BackupService {
       // 批量验证 pageId 存在性
       const existingPages = await this.pages.getByIds([...importPageIds]);
       const validPageIds = new Set(existingPages.map((p) => p.id));
-      // 预加载现有 visits（用于幂等检查）
-      const allExistingVisits = await this.visits.listAll();
-      const existingVisitIds = new Set(allExistingVisits.map((v) => v.id));
+      // 批量预加载涉及页面的已有 visit ID（单事务，替代 listAll 全量加载）
+      const existingVisitIds = await this.visits.listIdsByPageIds([...importPageIds]);
 
       for (let i = 0; i < payload.visits.length; i++) {
         const raw = payload.visits[i];

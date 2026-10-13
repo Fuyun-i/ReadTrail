@@ -1,12 +1,14 @@
 // ===== retentionDays 生命周期清理（development-plan 4.3）=====
 // 触发时机：SW 启动；按 lastVisitedAt 删除过期页面，同步删 visits 与索引。
 // 失败时保留可重试状态，不影响正常采集。
-// 优化：批量删除页面 + 批量删除 visits，减少串行事务。
+// 优化：分批加载过期记录（每批 500 条），避免全量 getAll 导致内存溢出。
 
 import type { PageRepository } from '../storage/repositories/page-repository';
 import type { VisitRepository } from '../storage/repositories/visit-repository';
 import type { SettingsRepository } from '../storage/repositories/settings-repository';
 import type { SearchProvider } from '../search/search-provider';
+
+const CLEAN_BATCH_SIZE = 500;
 
 export class RetentionCleaner {
   private running: Promise<number> | null = null;
@@ -35,30 +37,35 @@ export class RetentionCleaner {
     if (!retentionDays || retentionDays <= 0) return 0;
 
     const cutoff = this.now() - retentionDays * 86_400_000;
+    let totalDeleted = 0;
 
-    // 获取过期页面列表（用于删索引），走索引范围查询
-    const stale = await this.pages.list({ to: cutoff, sort: 'recent', limit: Number.MAX_SAFE_INTEGER });
-    if (stale.length === 0) return 0;
+    // 分批加载过期记录并逐批删除，避免一次性全量加载到内存。
+    // 不使用 offset：删除后记录不再出现在 to: cutoff 的查询结果中，
+    // 每次查询自然返回下一批未删除的过期记录。
+    while (true) {
+      const batch = await this.pages.list({
+        to: cutoff,
+        sort: 'recent',
+        limit: CLEAN_BATCH_SIZE,
+      });
+      if (batch.length === 0) break;
 
-    // 批量删除页面（单次索引范围删除，而非逐条 deleteById）
-    try {
-      await this.pages.deleteBefore(cutoff);
-    } catch {
-      // 批量删除失败，回退到逐条删除
-      for (const page of stale) {
-        try { await this.pages.deleteById(page.id); } catch { /* 跳过，下次重试 */ }
+      for (const page of batch) {
+        // 页面 → visits → 索引 顺序删除；单条失败跳过并继续，不阻塞其他清理
+        try {
+          await this.pages.deleteById(page.id);
+          await this.visits.deleteByPageId(page.id);
+          await this.search.remove(page.id);
+          totalDeleted++;
+        } catch {
+          // 保留该条待下次清理重试
+        }
       }
+
+      // 不足一批说明已到末尾
+      if (batch.length < CLEAN_BATCH_SIZE) break;
     }
 
-    // 批量删除对应的 visits 和索引
-    for (const page of stale) {
-      try {
-        await this.visits.deleteByPageId(page.id);
-        await this.search.remove(page.id);
-      } catch {
-        // 保留该条待下次清理重试
-      }
-    }
-    return stale.length;
+    return totalDeleted;
   }
 }

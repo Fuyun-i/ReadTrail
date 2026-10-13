@@ -2,7 +2,7 @@
 // 数据库名称与版本号（对应 architecture.md 第 8 节）
 
 export const DB_NAME = 'readtrail';
-export const DB_VERSION = 1;
+export const DB_VERSION = 2;
 
 export type StoreName = 'pages' | 'visits' | 'settings' | 'meta';
 
@@ -10,13 +10,13 @@ export type StoreName = 'pages' | 'visits' | 'settings' | 'meta';
 export function openDatabase(
   name: string = DB_NAME,
   version: number = DB_VERSION,
-  upgrade?: (db: IDBDatabase, oldVersion: number, newVersion: number) => void,
+  upgrade?: (db: IDBDatabase, oldVersion: number, newVersion: number, tx?: IDBTransaction) => void,
 ): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(name, version);
     request.onupgradeneeded = (event) => {
       const db = request.result;
-      upgrade?.(db, event.oldVersion, event.newVersion ?? version);
+      upgrade?.(db, event.oldVersion, event.newVersion ?? version, request.transaction ?? undefined);
     };
     request.onsuccess = () => {
       const db = request.result;

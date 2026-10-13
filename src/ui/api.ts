@@ -71,10 +71,10 @@ export const api = {
   indexHealth(): Promise<SearchHealth> {
     return send({ type: 'INDEX_HEALTH' });
   },
-  exportJson(): Promise<{ base64: string }> {
+  exportJson(): Promise<{ downloaded: boolean }> {
     return send({ type: 'EXPORT_JSON' });
   },
-  exportMarkdown(): Promise<{ base64: string }> {
+  exportMarkdown(): Promise<{ downloaded: boolean }> {
     return send({ type: 'EXPORT_MARKDOWN' });
   },
   importJson(jsonText: string, mode: 'merge' | 'replace'): Promise<ImportReport> {
@@ -85,6 +85,9 @@ export const api = {
       return Promise.reject(new Error('文件不是合法 JSON'));
     }
     return send({ type: 'IMPORT_JSON', payload: { data, options: { mode } } });
+  },
+  clearBefore(before: number): Promise<{ cleared: number }> {
+    return send({ type: 'CLEAR_BEFORE', payload: { before } });
   },
   clearAll(): Promise<{ cleared: boolean }> {
     return send({ type: 'CLEAR_ALL' });

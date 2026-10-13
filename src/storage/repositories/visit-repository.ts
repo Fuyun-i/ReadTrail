@@ -73,6 +73,32 @@ export class VisitRepository {
     });
   }
 
+
+  /**
+   * 批量查询多个 pageId 对应的已有 visit ID 集合（单事务，替代 N+1 查询）。
+   * 用于导入备份时去重：先一次性加载所有已有 visit ID，再在内存中 O(1) 判重。
+   */
+  async listIdsByPageIds(pageIds: string[]): Promise<Set<string>> {
+    if (pageIds.length === 0) return new Set();
+    const db = await this.dbPromise;
+    const tx = db.transaction('visits', 'readonly');
+    const index = tx.objectStore('visits').index('pageId');
+    const result = new Set<string>();
+    await Promise.all(
+      pageIds.map(
+        (pageId) =>
+          new Promise<void>((resolve, reject) => {
+            const req = index.getAll(pageId) as IDBRequest<VisitRecord[]>;
+            req.onsuccess = () => {
+              for (const v of req.result) result.add(v.id);
+              resolve();
+            };
+            req.onerror = () => reject(req.error ?? new Error('getAll failed'));
+          }),
+      ),
+    );
+    return result;
+  }
   async deleteAll(): Promise<void> {
     const db = await this.dbPromise;
     await dbClear(db, 'visits');

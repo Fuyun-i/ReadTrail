@@ -6,6 +6,7 @@ import type { StoreName } from './db';
 /**
  * object store 结构声明：
  * v1 — pages / visits / settings / meta
+ * v2 — pages 新增 visitCount 索引（用于"按访问次数排序"走索引而非全量加载）
  */
 export const STORES: Record<StoreName, { keyPath: string; indexes: Array<{ name: string; keyPath: string | string[] }> }> = {
   pages: {
@@ -14,6 +15,7 @@ export const STORES: Record<StoreName, { keyPath: string; indexes: Array<{ name:
       { name: 'canonicalUrl', keyPath: 'canonicalUrl' },
       { name: 'domain', keyPath: 'domain' },
       { name: 'lastVisitedAt', keyPath: 'lastVisitedAt' },
+      { name: 'visitCount', keyPath: 'visitCount' },
     ],
   },
   visits: {
@@ -27,12 +29,15 @@ export const STORES: Record<StoreName, { keyPath: string; indexes: Array<{ name:
   meta: { keyPath: 'key', indexes: [] },
 };
 
-export function applyMigrations(db: IDBDatabase, oldVersion: number, _newVersion: number): void {
+export function applyMigrations(db: IDBDatabase, oldVersion: number, _newVersion: number, tx?: IDBTransaction): void {
   // 每个旧版本依次升级到下一个版本，未来加版本时在 switch 中追加
   for (let v = oldVersion; v < db.version; v++) {
     switch (v) {
       case 0:
         createStoreV1(db);
+        break;
+      case 1:
+        upgradeToV2(tx);
         break;
       default:
         break;
@@ -46,5 +51,14 @@ function createStoreV1(db: IDBDatabase): void {
     for (const idx of def.indexes) {
       store.createIndex(idx.name, idx.keyPath);
     }
+  }
+}
+
+/** v1 → v2：为 pages store 添加 visitCount 索引 */
+function upgradeToV2(tx?: IDBTransaction): void {
+  if (!tx) return;
+  const store = tx.objectStore('pages');
+  if (!store.indexNames.contains('visitCount')) {
+    store.createIndex('visitCount', 'visitCount');
   }
 }

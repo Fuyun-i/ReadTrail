@@ -46,6 +46,7 @@ function makeDeps(records: PageRecord[] = []) {
   const visits = {
     listByPageId: vi.fn(async () => []),
     listAll: vi.fn(async () => []),
+    listIdsByPageIds: vi.fn(async () => new Set<string>()),
     create: vi.fn(async () => {}),
     deleteAll: vi.fn(async () => {}),
   };
