@@ -2,7 +2,7 @@
 
 # 🔍ReadTrail · 读过即存，一搜即回
 
-**Save as you read. Find as you seek.** 找回你读过的网页。
+**Save as you read. Find as you seek.**
 
 一个保护隐私的本地网页记录与检索扩展，适用于 Chrome 和 Edge（Chromium Manifest V3）。
 
