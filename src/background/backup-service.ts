@@ -123,23 +123,38 @@ export class BackupService {
     }
 
     // 导入备份中的 visits（5.2）：校验 pageId 存在、按 ID 幂等
-    if (Array.isArray(payload.visits)) {
+    // 优化：预加载所有已导入 page 的 ID 集合 + 预加载现有 visits ID 集合，消除 N+1 查询
+    if (Array.isArray(payload.visits) && payload.visits.length > 0) {
+      // 收集备份中涉及的所有 pageId
+      const importPageIds = new Set<string>();
+      for (const raw of payload.visits) {
+        if (typeof raw === 'object' && raw !== null) {
+          const r = raw as Record<string, unknown>;
+          if (typeof r.pageId === 'string') importPageIds.add(r.pageId);
+        }
+      }
+      // 批量验证 pageId 存在性
+      const existingPages = await this.pages.getByIds([...importPageIds]);
+      const validPageIds = new Set(existingPages.map((p) => p.id));
+      // 预加载现有 visits（用于幂等检查）
+      const allExistingVisits = await this.visits.listAll();
+      const existingVisitIds = new Set(allExistingVisits.map((v) => v.id));
+
       for (let i = 0; i < payload.visits.length; i++) {
         const raw = payload.visits[i];
         try {
           const visit = validateVisitRecord(raw);
-          const parent = visit.pageId ? await this.pages.findById(visit.pageId) : undefined;
-          if (!parent || !visit.pageId) {
+          if (!visit.pageId || !validPageIds.has(visit.pageId)) {
             // 孤儿访问记录：不挂靠到任何页面，跳过并计入 skipped
             report.skipped++;
             continue;
           }
-          const known = await this.visits.listByPageId(visit.pageId);
-          if (known.some((v) => v.id === visit.id)) {
+          if (existingVisitIds.has(visit.id)) {
             report.skipped++; // 幂等：已存在同 ID 访问记录
             continue;
           }
           await this.visits.create(visit);
+          existingVisitIds.add(visit.id); // 防止备份内重复 ID
         } catch (err) {
           report.errors.push({ index: i, message: `visits[${i}]: ${err instanceof Error ? err.message : String(err)}` });
         }

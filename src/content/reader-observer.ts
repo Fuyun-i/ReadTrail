@@ -88,13 +88,10 @@ export class ReaderObserver {
 
   private tick = (): void => {
     // SPA 路由检测：不钩 history.pushState/replaceState（避免污染页面全局对象），
-    // 改为每次 tick 轮询 location.href，pushState/replaceState/popstate 均能覆盖
+    // 改为每次 tick 轮询 location.href，pushState/replaceState/popstate 均能覆盖。
+    // title 变化已由 MutationObserver 监听，tick 中不再冗余轮询。
     if (location.href !== this.currentUrl) {
       this.onRouteChange();
-    }
-    // title 轮询作为 MutationObserver 的补充（某些框架延迟更新 title）
-    if (document.title !== this.currentTitle) {
-      this.currentTitle = document.title;
     }
 
     const now = Date.now();

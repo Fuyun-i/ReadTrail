@@ -13,7 +13,7 @@ import { PrivacyPolicy } from './privacy-policy';
 import { CaptureCoordinator } from './capture-coordinator';
 import { MessageRouter } from './message-router';
 import { BackupService } from './backup-service';
-import { IndexRecovery } from './index-recovery';
+import { IndexRecovery, rebuildFromDatabase } from './index-recovery';
 import { RetentionCleaner } from './retention-cleaner';
 
 // ---- 辅助函数 ----
@@ -274,10 +274,9 @@ async function handleWorkerMessage(message: WorkerMessage): Promise<unknown> {
       return { settings, validation: settingsRepo.validate(settings) };
     }
     case 'REBUILD_INDEX': {
-      const all = await pageRepo.list({ limit: Number.MAX_SAFE_INTEGER });
-      await searchProvider.rebuild(all);
+      const count = await rebuildFromDatabase(pageRepo, searchProvider);
       indexRecovery.markDone(); // 手动重建与启动恢复对齐，避免互相覆盖
-      return { rebuilt: all.length };
+      return { rebuilt: count };
     }
     case 'INDEX_HEALTH': {
       const dbCount = await pageRepo.count();

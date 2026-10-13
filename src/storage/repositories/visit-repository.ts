@@ -9,6 +9,7 @@ import {
   dbDelete,
   dbClear,
   dbCountByIndex,
+  transactionDone,
   DB_NAME,
   DB_VERSION,
 } from '../db';
@@ -51,12 +52,25 @@ export class VisitRepository {
     return dbCountByIndex(db, 'visits', 'pageId', pageId);
   }
 
+  /** 按 pageId 批量删除（单事务游标遍历，替代逐条独立事务） */
   async deleteByPageId(pageId: string): Promise<void> {
     const db = await this.dbPromise;
-    const records = await dbGetAllByIndex<VisitRecord>(db, 'visits', 'pageId', pageId);
-    for (const record of records) {
-      await dbDelete(db, 'visits', record.id);
-    }
+    const tx = db.transaction('visits', 'readwrite');
+    const index = tx.objectStore('visits').index('pageId');
+    await new Promise<void>((resolve, reject) => {
+      const cursorReq = index.openKeyCursor(pageId);
+      cursorReq.onsuccess = () => {
+        const cursor = cursorReq.result;
+        if (cursor) {
+          tx.objectStore('visits').delete(cursor.primaryKey);
+          cursor.continue();
+        }
+      };
+      cursorReq.onerror = () => reject(cursorReq.error ?? new Error('cursor error'));
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error('tx error'));
+      tx.onabort = () => reject(tx.error ?? new Error('tx aborted'));
+    });
   }
 
   async deleteAll(): Promise<void> {

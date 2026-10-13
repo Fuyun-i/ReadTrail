@@ -37,13 +37,6 @@ async function getIndexCtor(): Promise<new () => FlexIndex> {
   return IndexCtor;
 }
 
-function newIndex(): FlexIndex {
-  const host = globalThis as { __readtrailIndexCtor?: new () => FlexIndex };
-  const Ctor = host.__readtrailIndexCtor;
-  if (!Ctor) throw new Error('flexsearch not initialized');
-  return new Ctor();
-}
-
 /**
  * 页面获取回调。
  * - ids 非空：按 ID 批量回读（搜索命中后取完整记录）
@@ -61,19 +54,24 @@ export class FlexSearchProvider implements SearchProvider {
   private indexedIds = new Set<string>();
   private lastRebuiltAt?: number;
   private needsRebuild = false;
+  private cachedCtor: (new () => FlexIndex) | null = null;
 
   constructor(private fetchPages: PageFetcher) {}
 
   async init(): Promise<void> {
     if (this.indexes) return;
-    const Ctor = await getIndexCtor();
-    (globalThis as { __readtrailIndexCtor?: new () => FlexIndex }).__readtrailIndexCtor = Ctor;
+    this.cachedCtor = await getIndexCtor();
     this.indexes = {
-      title: newIndex(),
-      domain: newIndex(),
-      excerpt: newIndex(),
-      text: newIndex(),
+      title: this.newIndex(),
+      domain: this.newIndex(),
+      excerpt: this.newIndex(),
+      text: this.newIndex(),
     };
+  }
+
+  private newIndex(): FlexIndex {
+    if (!this.cachedCtor) throw new Error('flexsearch not initialized');
+    return new this.cachedCtor();
   }
 
   async index(record: PageRecord): Promise<void> {
@@ -97,10 +95,10 @@ export class FlexSearchProvider implements SearchProvider {
   async clear(): Promise<void> {
     await this.init();
     this.indexes = {
-      title: newIndex(),
-      domain: newIndex(),
-      excerpt: newIndex(),
-      text: newIndex(),
+      title: this.newIndex(),
+      domain: this.newIndex(),
+      excerpt: this.newIndex(),
+      text: this.newIndex(),
     };
     this.indexedIds.clear();
     this.needsRebuild = false;
@@ -135,21 +133,36 @@ export class FlexSearchProvider implements SearchProvider {
     const fieldHits = new Map<string, { score: number; fields: Set<SearchMatchField> }>();
     const FIELD_WEIGHT: Record<FieldName, number> = { title: 3, domain: 2, excerpt: 1.5, text: 1 };
 
-    for (const [field, idx] of Object.entries(this.indexes) as Array<[FieldName, FlexIndex]>) {
-      let ids: string[] | number[];
-      try {
-        ids = idx.search(query, { limit: limit + offset + 50 });
-      } catch {
-        ids = [];
+    // 动态追加：初始取 limit+offset+50，过滤后不足时增大 limit 重试
+    let searchLimit = limit + offset + 50;
+    const maxRetries = 3;
+    for (let retry = 0; retry < maxRetries; retry++) {
+      fieldHits.clear();
+      for (const [field, idx] of Object.entries(this.indexes) as Array<[FieldName, FlexIndex]>) {
+        let ids: string[] | number[];
+        try {
+          ids = idx.search(query, { limit: searchLimit });
+        } catch {
+          ids = [];
+        }
+        ids.forEach((rawId, rank) => {
+          const id = String(rawId);
+          const existing = fieldHits.get(id) ?? { score: 0, fields: new Set<SearchMatchField>() };
+          existing.score += FIELD_WEIGHT[field] * (1 + 1 / (rank + 1));
+          existing.fields.add(field);
+          fieldHits.set(id, existing);
+        });
       }
-      ids.forEach((rawId, rank) => {
-        const id = String(rawId);
-        const existing = fieldHits.get(id) ?? { score: 0, fields: new Set<SearchMatchField>() };
-        // 排名靠前加分 + 字段权重
-        existing.score += FIELD_WEIGHT[field] * (1 + 1 / (rank + 1));
-        existing.fields.add(field);
-        fieldHits.set(id, existing);
-      });
+
+      // 检查过滤后是否有足够结果
+      const candidateIds = [...fieldHits.keys()];
+      if (candidateIds.length === 0) return [];
+
+      // 快速估算过滤后数量（不回读数据库，仅按已知的 fieldHits 数量估算）
+      // 如果候选数远大于需要的数量，大概率够用
+      if (candidateIds.length >= (offset + limit) * 2 || retry === maxRetries - 1) break;
+      // 否则增大 searchLimit 重试
+      searchLimit *= 2;
     }
 
     if (fieldHits.size === 0) return [];
@@ -224,6 +237,7 @@ export class FlexSearchProvider implements SearchProvider {
 
   private async emptyQueryResults(input: SearchInput, offset: number, limit: number): Promise<SearchResult[]> {
     // 优化：不再调 fetchPages([]) 拉全量数据，而是传入 limit/offset/sort 让 SW 侧走索引查询
+    // domain 传给 SW 侧过滤（已支持管道分隔 OR 匹配），客户端不再重复过滤
     const pages = await this.fetchPages([], {
       limit: offset + limit,
       offset: 0,
@@ -233,9 +247,9 @@ export class FlexSearchProvider implements SearchProvider {
       domain: input.domain,
     });
 
+    // 仅过滤 source（SW 侧不支持 source 过滤）
     const filtered = pages
       .filter((p) => {
-        if (input.domain && !matchesAnyDomain(p.domain, input.domain)) return false;
         if (input.source && p.source !== input.source) return false;
         return true;
       })

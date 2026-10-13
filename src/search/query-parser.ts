@@ -76,9 +76,12 @@ export class QueryParser {
 }
 
 /** 简易 CJK/英文混合分词：连续英文按词，CJK 按二元组 */
+// CJK 字符范围正则（模块级常量，避免每次调用重新创建）
+const CJK_RUN = /[一-鿿぀-ヿ가-힯]/;
+
 export function tokenize(text: string): string[] {
   const tokens: string[] = [];
-  const cjkRun = /[一-鿿぀-ヿ가-힯]/;
+  const cjkRun = CJK_RUN;
   let buffer = '';
   let cjkBuffer = '';
 

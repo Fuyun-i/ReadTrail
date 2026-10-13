@@ -1,9 +1,7 @@
 // 历史标签页
-import { useState, useEffect } from 'react';
 import type { PageRecord } from '../../shared/types';
 import { formatDate, formatDuration } from '../../ui/utils';
 
-const PAGE_SIZE = 50;
 
 export function HistoryTab(props: {
   pages: PageRecord[];

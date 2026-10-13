@@ -25,6 +25,12 @@ let thresholdLoaded = false;
 let lastConfigFetchAt = 0;
 const CONFIG_REFRESH_MS = 30_000; // 开关需新鲜：每 30s 重新拉取（暂停/恢复同步到已打开页面）
 
+/** 安全数值提取：返回有限数（含 0），否则回退到 fallback */
+function safeNumber(raw: unknown, fallback: number): number {
+  const v = Number(raw);
+  return Number.isFinite(v) ? v : fallback;
+}
+
 async function loadThreshold(): Promise<void> {
   const now = Date.now();
   if (thresholdLoaded && now - lastConfigFetchAt < CONFIG_REFRESH_MS) return;
@@ -32,18 +38,19 @@ async function loadThreshold(): Promise<void> {
     const response = await chrome.runtime.sendMessage({ type: 'GET_CONTENT_THRESHOLD' });
     if (response?.ok && response.data) {
       threshold = {
-        minReadingDurationMs: Number(response.data.minReadingDurationMs) || threshold.minReadingDurationMs,
-        minScrollRatio: Number(response.data.minScrollRatio) || threshold.minScrollRatio,
-        minTextLength: Number(response.data.minTextLength) || threshold.minTextLength,
+        minReadingDurationMs: safeNumber(response.data.minReadingDurationMs, threshold.minReadingDurationMs),
+        minScrollRatio: safeNumber(response.data.minScrollRatio, threshold.minScrollRatio),
+        minTextLength: safeNumber(response.data.minTextLength, threshold.minTextLength),
       };
       if (typeof response.data.enabled === 'boolean') autoEnabled = response.data.enabled;
+      // 只有成功获取才标记已加载，避免 {ok:false} 时 30s 内不重试
+      thresholdLoaded = true;
+      lastConfigFetchAt = now;
     }
   } catch {
     // SW 重启中：保持当前值，下个周期重试
     return;
   }
-  thresholdLoaded = true;
-  lastConfigFetchAt = now;
 }
 
 /** 检查阈值并在满足时提交候选 */

@@ -203,6 +203,31 @@ npm run format     # Prettier 格式化
 
 ## 📋 更新日志
 
+### v0.4.1
+
+**Bug 修复（High）**
+- `content-main.ts`: `Number(x) || fallback` 对合法的 0 值误判为 falsy，改用 `Number.isFinite` 检查
+- `page-repository.ts`: 管道分隔域名筛选（`a.com|b.com`）的 OR 匹配现在正确工作
+- `SettingsTab.tsx`: `retentionDays=0` 现在正确提交 `undefined` 表示永久保留，而非被忽略
+- 新增 `PageRepository.listForIndex()`，索引重建时截断正文（20K 字符），减少内存占用
+
+**优化（Medium）**
+- `visit-repository.ts`: `deleteByPageId` 改为单事务游标遍历批量删除，替代逐条独立事务
+- `retention-cleaner.ts`: 批量删除过期页面和 visits，减少串行事务
+- `flex-search-provider.ts`: 搜索分页不足时自动迭代追加查询；`globalThis` 索引构造器改为实例字段
+- `backup-service.ts`: `importJson` 预加载 pageId Set 和 visitId Set，消除 N+1 查询
+- `SettingsTab.tsx`: 添加 `useEffect` 同步外部 settings 变更到本地状态
+- `query-parser.ts`: CJK 正则提取为模块级常量，避免每次调用重新创建
+- `PopupApp.tsx`: 搜索框添加 300ms debounce，减少不必要的查询
+- `content-main.ts`: `thresholdLoaded` 标记移入成功分支，避免失败时 30s 内不重试
+
+**清理（Low）**
+- `HistoryTab.tsx`: 删除未使用的 `useState`/`useEffect` 导入和 `PAGE_SIZE` 常量
+- `article-extractor.ts`: fallback 路径改用 `innerText` 获取可见文本，避免 `cloneNode(true)` 开销
+- `reader-observer.ts`: 移除 tick 中冗余的 title 轮询（已由 MutationObserver 监听）
+- 抽取 `rebuildFromDatabase()` 共享方法，`service-worker` 和 `index-recovery` 共用
+- `capture-coordinator.ts`: `visit.startedAt` 加 `Math.max(0, ...)` 防御负值
+
 ### v0.4.0
 
 **性能优化（P0）**

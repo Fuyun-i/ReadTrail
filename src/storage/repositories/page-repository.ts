@@ -29,6 +29,16 @@ export type PageListInput = {
   sort?: 'recent' | 'frequent';
 };
 
+/** 域名匹配（支持管道分隔 OR 语义 + 子域匹配） */
+function matchesAnyDomain(recordDomain: string, filterDomain: string): boolean {
+  const d = recordDomain.toLowerCase();
+  return filterDomain.split('|').some((f) => {
+    const target = f.trim().toLowerCase();
+    if (!target) return true;
+    return d === target || d.endsWith('.' + target) || target.endsWith('.' + d);
+  });
+}
+
 export class PageRepository {
   private dbPromise: Promise<IDBDatabase>;
 
@@ -142,8 +152,8 @@ export class PageRepository {
     if (input.from !== undefined) filtered = filtered.filter((r) => r.lastVisitedAt >= input.from!);
     if (input.to !== undefined) filtered = filtered.filter((r) => r.lastVisitedAt <= input.to!);
     if (input.domain) {
-      const d = input.domain.toLowerCase();
-      filtered = filtered.filter((r) => r.domain === d || r.domain.endsWith('.' + d) || d.endsWith('.' + r.domain));
+      const d = input.domain;
+      filtered = filtered.filter((r) => matchesAnyDomain(r.domain, d));
     }
     return filtered;
   }
@@ -174,6 +184,19 @@ export class PageRepository {
     if (ids.length === 0) return [];
     const db = await this.dbPromise;
     return dbGetBatch<PageRecord>(db, 'pages', ids);
+  }
+
+  /**
+   * 列出用于索引重建的记录（截断 text 字段以减少内存占用）。
+   * 索引只用 text.slice(0, 20_000)，无需加载完整正文（最高 500KB/条）。
+   */
+  async listForIndex(maxTextLength: number = 20_000): Promise<PageRecord[]> {
+    const records = await this.list({ sort: 'recent', limit: Number.MAX_SAFE_INTEGER });
+    // 截断 text 字段，保留其他字段不变
+    return records.map((r) => ({
+      ...r,
+      text: r.text.length > maxTextLength ? r.text.slice(0, maxTextLength) : r.text,
+    }));
   }
 }
 
