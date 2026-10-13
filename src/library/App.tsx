@@ -143,7 +143,7 @@ export default function App() {
           onRebuilt={(n) => { applyRebuilt(n); flash(`索引重建完成，共 ${n} 条`, 3000); }}
           onExported={(name) => flash(`已导出 ${name}`)}
           onImported={handleImported}
-          onCleared={() => flash('所有数据已清空')}
+          onCleared={(n) => flash(n === 0 ? '所有数据已清空' : `已删除 ${n} 条记录`)}
           onError={setError}
         />
       )}

@@ -38,8 +38,15 @@ function makeFetchPages(pages: PageRecord[]) {
   };
 }
 
+/** mock fetchBatch：模拟分页加载，按 offset/limit 截断 */
+function makeFetchBatch(pages: PageRecord[]) {
+  return async (offset: number, limit: number): Promise<PageRecord[]> => {
+    return pages.slice(offset, offset + limit);
+  };
+}
+
 describe('FlexSearchProvider', () => {
-  it('空查询返回最近页面（走 emptyQueryResults 轻量路径）', async () => {
+  it('空查询返回最近页面（走 emptyQueryResults 载量路径）', async () => {
     const pages: PageRecord[] = [
       makePage({ id: 'p1', title: 'Page 1', lastVisitedAt: 1000 }),
       makePage({ id: 'p2', title: 'Page 2', lastVisitedAt: 2000 }),
@@ -99,5 +106,54 @@ describe('FlexSearchProvider', () => {
     await provider.clear();
     const results = await provider.search({ query: 'Test', limit: 10, sort: 'relevance' });
     expect(results.length).toBe(0);
+  });
+
+  // ---- rebuildStream 流式重建测试 ----
+
+  it('rebuildStream 分页加载并正确建索引', async () => {
+    const pages: PageRecord[] = [
+      makePage({ id: 'p1', title: 'Rust 入门', text: 'rust beginner' }),
+      makePage({ id: 'p2', title: 'Go 入门', text: 'go beginner' }),
+      makePage({ id: 'p3', title: 'Python 入门', text: 'python beginner' }),
+    ];
+    const provider = new FlexSearchProvider(makeFetchPages(pages));
+    const total = await provider.rebuildStream(makeFetchBatch(pages), 2);
+    expect(total).toBe(3);
+    // 搜索应能命中
+    const results = await provider.search({ query: 'Rust', limit: 10, sort: 'relevance' });
+    expect(results.length).toBeGreaterThanOrEqual(1);
+    expect(results[0]!.page.id).toBe('p1');
+  });
+
+  it('rebuildStream 与 rebuild 结果一致', async () => {
+    const pages: PageRecord[] = [
+      makePage({ id: 'p1', title: 'TypeScript 高级', text: 'typescript advanced' }),
+      makePage({ id: 'p2', title: 'JavaScript 基础', text: 'javascript basic' }),
+      makePage({ id: 'p3', title: 'Python 数据分析', text: 'python data' }),
+      makePage({ id: 'p4', title: 'Rust 系统编程', text: 'rust system' }),
+    ];
+    // 用 rebuild 建索引
+    const provider1 = new FlexSearchProvider(makeFetchPages(pages));
+    await provider1.rebuild(pages);
+    // 用 rebuildStream 建索引（chunkSize=1，逐条加载）
+    const provider2 = new FlexSearchProvider(makeFetchPages(pages));
+    await provider2.rebuildStream(makeFetchBatch(pages), 1);
+
+    const h1 = await provider1.health(4);
+    const h2 = await provider2.health(4);
+    expect(h2.indexedCount).toBe(h1.indexedCount);
+    expect(h2.needsRebuild).toBe(false);
+
+    // 搜索结果一致
+    const r1 = await provider1.search({ query: 'TypeScript', limit: 10, sort: 'relevance' });
+    const r2 = await provider2.search({ query: 'TypeScript', limit: 10, sort: 'relevance' });
+    expect(r2.length).toBe(r1.length);
+    if (r1.length > 0) expect(r2[0]!.page.id).toBe(r1[0]!.page.id);
+  });
+
+  it('rebuildStream 空数据库返回 0', async () => {
+    const provider = new FlexSearchProvider(makeFetchPages([]));
+    const total = await provider.rebuildStream(makeFetchBatch([]), 500);
+    expect(total).toBe(0);
   });
 });

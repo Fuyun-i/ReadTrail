@@ -14,7 +14,7 @@ import type {
   SearchHighlight,
   SearchHealth,
 } from '../shared/types';
-import type { SearchProvider } from './search-provider';
+import type { SearchProvider, BatchFetcher } from './search-provider';
 import { tokenize, tokenizeQuery } from './query-parser';
 
 // FlexSearch 按需加载（其 ESM 包体较大，Service Worker 冷启动敏感）
@@ -111,6 +111,29 @@ export class FlexSearchProvider implements SearchProvider {
     }
     this.lastRebuiltAt = Date.now();
     this.needsRebuild = false;
+  }
+
+  /**
+   * 流式重建索引：分页加载记录并增量建索引，避免一次性全量载入内存。
+   * 内存峰值只跟 chunkSize 相关（默认 500 条），与总数据量无关。
+   */
+  async rebuildStream(fetchBatch: BatchFetcher, chunkSize = 500): Promise<number> {
+    await this.clear();
+    let offset = 0;
+    let total = 0;
+    while (true) {
+      const batch = await fetchBatch(offset, chunkSize);
+      if (batch.length === 0) break;
+      for (const record of batch) {
+        this.addToIndexes(record);
+      }
+      total += batch.length;
+      offset += batch.length;
+      if (batch.length < chunkSize) break;
+    }
+    this.lastRebuiltAt = Date.now();
+    this.needsRebuild = false;
+    return total;
   }
 
   async search(input: SearchInput): Promise<SearchResult[]> {

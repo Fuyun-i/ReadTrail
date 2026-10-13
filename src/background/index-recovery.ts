@@ -2,21 +2,24 @@
 // 目标：SW 重启后无需手动重建即可搜索。
 // 原则：IndexedDB 为准，内存索引只是可重建缓存。
 // 保证：恢复失败不删数据、只置 needsRebuild；并发请求合并为单次重建。
-// 优化：使用 listForIndex 截断正文，减少内存占用。
+// 优化：分页流式加载，避免全量 getAll 导致内存溢出。
 
 import type { PageRepository } from '../storage/repositories/page-repository';
 import type { SearchProvider } from '../search/search-provider';
 
 export type RecoveryState = 'idle' | 'running' | 'done' | 'failed';
 
-/** 从数据库重建索引的共享逻辑（供 IndexRecovery 和手动 REBUILD_INDEX 共用） */
+/** 流式从数据库重建索引（供 IndexRecovery 和手动 REBUILD_INDEX 共用） */
 export async function rebuildFromDatabase(
   pages: PageRepository,
   search: SearchProvider,
+  chunkSize = 500,
 ): Promise<number> {
-  const records = await pages.listForIndex();
-  await search.rebuild(records);
-  return records.length;
+  await pages.ready();
+  return search.rebuildStream(
+    (offset, limit) => pages.list({ sort: 'recent', offset, limit }),
+    chunkSize,
+  );
 }
 
 export class IndexRecovery {
@@ -64,7 +67,6 @@ export class IndexRecovery {
   }
 
   private async run(): Promise<void> {
-    await this.pages.ready();
     await rebuildFromDatabase(this.pages, this.search);
   }
 }

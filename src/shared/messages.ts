@@ -35,6 +35,7 @@ export type WorkerMessage =
   | { type: 'EXPORT_MARKDOWN'; requestId: string; payload?: { pageIds?: string[] } }
   | { type: 'IMPORT_JSON'; requestId: string; payload: { data: unknown; options?: ImportOptions } }
   | { type: 'CLEAR_ALL'; requestId: string }
+  | { type: 'CLEAR_BEFORE'; requestId: string; payload: { before: number } }
   /** 打开（或激活）独立记录库；可携带查询与目标分区（popup → SW） */
   | { type: 'OPEN_LIBRARY'; requestId?: string; payload?: { query?: string; section?: 'search' | 'history' | 'settings' } };
 
@@ -65,6 +66,7 @@ export interface WorkerResponseMap {
   EXPORT_MARKDOWN: { base64: string };
   IMPORT_JSON: ImportReport;
   CLEAR_ALL: { cleared: boolean };
+  CLEAR_BEFORE: { cleared: number };
   OPEN_LIBRARY: { opened: boolean };
 }
 

@@ -41,6 +41,20 @@ async function blobToBase64(blob: Blob): Promise<string> {
   return btoa(binary);
 }
 
+/** 通过 chrome.downloads API 直接下载 Blob，不走消息通道，不受消息体大小限制 */
+async function downloadBlob(blob: Blob, filename: string): Promise<void> {
+  const url = URL.createObjectURL(blob);
+  const downloadId = await chrome.downloads.download({ url, filename, saveAs: true });
+  // 下载完成后释放 blob URL，避免内存泄漏
+  const listener = (delta: chrome.downloads.DownloadDelta) => {
+    if (delta.id === downloadId && delta.state?.current === 'complete') {
+      URL.revokeObjectURL(url);
+      chrome.downloads.onChanged.removeListener(listener);
+    }
+  };
+  chrome.downloads.onChanged.addListener(listener);
+}
+
 // ---- 搜索输入归一化（development-plan 3.2 / 3.3）----
 // 1. 用户设置中的 searchResultLimit 作为默认/上限，不在 UI 和 Provider 各自写死。
 // 2. QueryParser 解析 domain: 语法与时间短语；解析失败退回原始关键词，不阻断搜索。
@@ -119,6 +133,9 @@ const router = new MessageRouter();
 const indexRecovery = new IndexRecovery(pageRepo, searchProvider);
 const retentionCleaner = new RetentionCleaner(pageRepo, visitRepo, settingsRepo, searchProvider);
 
+// ---- 请求持久化存储：防止浏览器在磁盘压力下静默清除 IndexedDB 数据 ----
+navigator.storage?.persist?.();
+
 // ---- 启动恢复（fire-and-forget）：SW 每次唤醒先重建索引，搜索请求会等待它完成 ----
 void indexRecovery.ensureRecovered();
 // ---- 启动清理（fire-and-forget）：按 retentionDays 删除过期数据 ----
@@ -128,6 +145,9 @@ void retentionCleaner.clean().catch(() => {});
 const MENU_SAVE_ID = 'readtrail-save-now';
 
 chrome.runtime.onInstalled.addListener(() => {
+  // 安装/更新时请求持久化存储（顶层也已调用，这里确保 onInstalled 时也触发）
+  navigator.storage?.persist?.();
+
   chrome.contextMenus.create({
     id: MENU_SAVE_ID,
     title: 'ReadTrail：立即保存此页',
@@ -286,11 +306,15 @@ async function handleWorkerMessage(message: WorkerMessage): Promise<unknown> {
     }
     case 'EXPORT_JSON': {
       const blob = await backupService.exportJson((message.payload ?? {}) as ExportOptions);
-      return { base64: await blobToBase64(blob) };
+      const filename = `readtrail-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      await downloadBlob(blob, filename);
+      return { downloaded: true };
     }
     case 'EXPORT_MARKDOWN': {
       const blob = await backupService.exportMarkdown(message.payload?.pageIds);
-      return { base64: await blobToBase64(blob) };
+      const filename = `readtrail-export-${new Date().toISOString().slice(0, 10)}.md`;
+      await downloadBlob(blob, filename);
+      return { downloaded: true };
     }
     case 'IMPORT_JSON': {
       const blob = new Blob([JSON.stringify(message.payload.data)], { type: 'application/json' });
@@ -301,6 +325,23 @@ async function handleWorkerMessage(message: WorkerMessage): Promise<unknown> {
       await visitRepo.deleteAll();
       await searchProvider.clear();
       return { cleared: true };
+    }
+    case 'CLEAR_BEFORE': {
+      // 分批删除 lastVisitedAt < before 的页面，同步删 visits 和索引
+      const { before } = (message as { payload: { before: number } }).payload;
+      let cleared = 0;
+      while (true) {
+        const batch = await pageRepo.list({ to: before, sort: 'recent', limit: 500 });
+        if (batch.length === 0) break;
+        for (const page of batch) {
+          await pageRepo.deleteById(page.id);
+          await visitRepo.deleteByPageId(page.id);
+          await searchProvider.remove(page.id);
+          cleared++;
+        }
+        if (batch.length < 500) break;
+      }
+      return { cleared };
     }
     case 'OPEN_LIBRARY': {
       // 打开独立记录库；已有记录库标签页时激活之（E-013/E-014/E-016）
@@ -338,6 +379,7 @@ router.register('EXPORT_JSON', handleWorkerMessage);
 router.register('EXPORT_MARKDOWN', handleWorkerMessage);
 router.register('IMPORT_JSON', handleWorkerMessage);
 router.register('CLEAR_ALL', handleWorkerMessage);
+router.register('CLEAR_BEFORE', handleWorkerMessage);
 router.register('OPEN_LIBRARY', handleWorkerMessage);
 
 // 导出给测试使用

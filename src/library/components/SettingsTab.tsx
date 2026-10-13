@@ -1,7 +1,7 @@
 // 设置标签页（含数据管理与索引状态）
 import { useState, useEffect } from 'react';
 import type { UserSettings, SearchHealth, ImportReport } from '../../shared/types';
-import { api, downloadBase64 } from '../../ui/api';
+import { api } from '../../ui/api';
 
 export function SettingsTab(props: {
   settings: UserSettings;
@@ -10,7 +10,7 @@ export function SettingsTab(props: {
   onRebuilt: (n: number) => void;
   onExported: (name: string) => void;
   onImported: (r: ImportReport) => void;
-  onCleared: () => void;
+  onCleared: (deletedCount: number) => void;
   onError: (msg: string) => void;
 }) {
   const { settings, health } = props;
@@ -73,8 +73,7 @@ export function SettingsTab(props: {
 
   const exportJson = guard(async () => {
     try {
-      const { base64 } = await api.exportJson();
-      downloadBase64(base64, `readtrail-backup-${new Date().toISOString().slice(0, 10)}.json`, 'application/json');
+      await api.exportJson();
       props.onExported('JSON 备份');
     } catch (err) {
       props.onError(err instanceof Error ? err.message : String(err));
@@ -83,14 +82,12 @@ export function SettingsTab(props: {
 
   const exportMarkdown = guard(async () => {
     try {
-      const { base64 } = await api.exportMarkdown();
-      downloadBase64(base64, `readtrail-export-${new Date().toISOString().slice(0, 10)}.md`, 'text/markdown');
+      await api.exportMarkdown();
       props.onExported('Markdown');
     } catch (err) {
       props.onError(err instanceof Error ? err.message : String(err));
     }
   });
-
   const importFile = guard(async (file: File) => {
     try {
       const text = await file.text();
@@ -101,11 +98,27 @@ export function SettingsTab(props: {
     }
   });
 
-  const clearAll = guard(async () => {
-    if (!window.confirm('确定删除所有已保存的页面、正文和访问记录？此操作不可恢复。')) return;
+  const [clearRange, setClearRange] = useState<'1h' | '24h' | '7d' | '4m' | 'all'>('all');
+
+  const clearByRange = guard(async () => {
+    const labels: Record<typeof clearRange, string> = {
+      '1h': '过去 1 小时内的',
+      '24h': '过去 24 小时内的',
+      '7d': '过去 7 天内的',
+      '4m': '过去 4 个月内的',
+      all: '所有',
+    };
+    if (!window.confirm(`确定删除${labels[clearRange]}页面、正文和访问记录？此操作不可恢复。`)) return;
     try {
-      await api.clearAll();
-      props.onCleared();
+      if (clearRange === 'all') {
+        await api.clearAll();
+        props.onCleared(0);
+      } else {
+        const now = Date.now();
+        const ms: Record<string, number> = { '1h': 3600_000, '24h': 86400_000, '7d': 604800_000, '4m': 10368000_000 };
+        const { cleared } = await api.clearBefore(now - ms[clearRange]!);
+        props.onCleared(cleared);
+      }
     } catch (err) {
       props.onError(err instanceof Error ? err.message : String(err));
     }
@@ -174,7 +187,14 @@ export function SettingsTab(props: {
             onChange={(e) => e.target.files?.[0] && void importFile(e.target.files[0])}
           />
         </label>
-        <button className="danger" onClick={clearAll} disabled={busy}>清空全部数据</button>
+        <select value={clearRange} onChange={(e) => setClearRange(e.target.value as typeof clearRange)}>
+          <option value="1h">过去 1 小时</option>
+          <option value="24h">过去 24 小时</option>
+          <option value="7d">过去 7 天</option>
+          <option value="4m">过去 4 个月</option>
+          <option value="all">全部</option>
+        </select>
+        <button className="danger" onClick={clearByRange} disabled={busy}>删除选中范围数据</button>
       </div>
       <p className="privacy-note">所有数据仅保存在本机浏览器中，本扩展不向任何远程服务发送你的正文。</p>
     </section>

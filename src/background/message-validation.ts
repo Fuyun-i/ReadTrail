@@ -189,6 +189,7 @@ const VALIDATORS: Record<string, PayloadValidator | undefined> = {
   },
   IMPORT_JSON: validateImportPayload,
   CLEAR_ALL: () => {},
+  CLEAR_BEFORE: (p) => { requireNumber(requireObject(p), 'before', 0, 8.64e15); },
   OPEN_LIBRARY: (p) => {
     if (p === undefined) return;
     const obj = requireObject(p);
@@ -205,7 +206,7 @@ export function validateMessagePayload(message: WorkerMessage): void {
   if (!validator) return; // 未知类型交给 router
   if (!('payload' in message) || message.payload === undefined) {
     // 允许缺省 payload 的消息类型
-    if (['SEARCH', 'GET_PAGE', 'DELETE_PAGE', 'UPDATE_SETTINGS', 'IMPORT_JSON'].includes(message.type)) {
+    if (['SEARCH', 'GET_PAGE', 'DELETE_PAGE', 'UPDATE_SETTINGS', 'IMPORT_JSON', 'CLEAR_BEFORE'].includes(message.type)) {
       throw new AppError('INVALID_MESSAGE', `消息 ${message.type} 缺少 payload`);
     }
     return;
