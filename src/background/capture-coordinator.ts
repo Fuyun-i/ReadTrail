@@ -115,7 +115,7 @@ export class CaptureCoordinator {
       pageId: record.id,
       tabId: candidate.tabId,
       url: candidate.url,
-      startedAt: now - candidate.readingDurationMs,
+      startedAt: Math.max(0, now - candidate.readingDurationMs), // L-6: 防御负值
       endedAt: now,
       durationMs: candidate.readingDurationMs,
       maxScrollRatio: candidate.maxScrollRatio,

@@ -18,6 +18,7 @@ export default function PopupApp() {
   const [enabled, setEnabled] = useState<boolean | null>(null); // 记录状态
   const [searched, setSearched] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 打开即聚焦搜索框（E-011）
   useEffect(() => {
@@ -27,6 +28,9 @@ export default function PopupApp() {
       .catch(() => setEnabled(null));
     // 空查询：展示少量最近保存
     void loadRecent();
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -87,8 +91,22 @@ export default function PopupApp() {
           className="search-input"
           placeholder="搜索读过的网页…"
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && void runSearch(query)}
+          onChange={(e) => {
+            const v = e.target.value;
+            setQuery(v);
+            // M-7: debounce 300ms 自动搜索，减少不必要的查询
+            if (debounceRef.current) clearTimeout(debounceRef.current);
+            debounceRef.current = setTimeout(() => {
+              if (v.trim()) void runSearch(v);
+              else void loadRecent();
+            }, 300);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              if (debounceRef.current) clearTimeout(debounceRef.current);
+              void runSearch(query);
+            }
+          }}
           aria-label="搜索已保存网页"
         />
       </div>

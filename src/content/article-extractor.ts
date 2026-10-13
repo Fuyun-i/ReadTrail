@@ -84,10 +84,8 @@ export async function extractArticle(): Promise<ExtractedArticle> {
     }
   }
 
-  // 3. 可见文本降级
-  const bodyClone = document.body.cloneNode(true) as HTMLElement;
-  stripNoise(bodyClone);
-  const text = cleanText(bodyClone.textContent ?? '');
+  // 3. 可见文本降级（L-3: 使用 innerText 获取可见文本，避免 cloneNode(true) 的开销）
+  const text = cleanText(document.body.innerText ?? document.body.textContent ?? '');
 
   return {
     url,

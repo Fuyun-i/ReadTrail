@@ -1,5 +1,5 @@
 // 设置标签页（含数据管理与索引状态）
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { UserSettings, SearchHealth, ImportReport } from '../../shared/types';
 import { api, downloadBase64 } from '../../ui/api';
 
@@ -25,6 +25,18 @@ export function SettingsTab(props: {
   const [importMode, setImportMode] = useState<'merge' | 'replace'>('merge');
   const [busy, setBusy] = useState(false); // 防止重复点击触发并发导入/重建/删除
 
+  // M-5: 外部 settings 变更时同步本地状态（如其他标签页修改了设置）
+  useEffect(() => {
+    setEnabled(settings.enabled);
+    setMinSeconds(Math.round(settings.minReadingDurationMs / 1000));
+    setMinScroll(Math.round(settings.minScrollRatio * 100));
+    setMinTextLength(settings.minTextLength);
+    setRetentionDays(settings.retentionDays);
+    setSearchResultLimit(settings.searchResultLimit);
+    setExcluded(settings.excludedDomains.join(', '));
+    setIncluded(settings.includedDomains.join(', '));
+  }, [settings]);
+
   const guard = <A extends unknown[]>(fn: (...args: A) => Promise<void>) => (...args: A) => {
     if (busy) return Promise.resolve();
     setBusy(true);
@@ -38,7 +50,8 @@ export function SettingsTab(props: {
         minReadingDurationMs: minSeconds * 1000,
         minScrollRatio: minScroll / 100,
         minTextLength,
-        retentionDays,
+        // H-3: retentionDays=0 表示永久保留，提交 undefined 而非 0
+        retentionDays: retentionDays && retentionDays > 0 ? retentionDays : undefined,
         searchResultLimit,
         excludedDomains: excluded.split(/[,，\s]+/).filter(Boolean),
         includedDomains: included.split(/[,，\s]+/).filter(Boolean),
@@ -118,8 +131,8 @@ export function SettingsTab(props: {
         <input type="number" min={0} step={100} value={minTextLength} onChange={(e) => setMinTextLength(Number(e.target.value))} />
       </label>
       <label className="row">
-        数据保留天数（0 = 永久保留）
-        <input type="number" min={0} step={1} value={retentionDays} onChange={(e) => setRetentionDays(Number(e.target.value))} />
+        数据保留天数（0 或留空 = 永久保留）
+        <input type="number" min={0} step={1} value={retentionDays ?? 0} onChange={(e) => setRetentionDays(Number(e.target.value) || undefined)} />
       </label>
       <label className="row">
         搜索结果上限
