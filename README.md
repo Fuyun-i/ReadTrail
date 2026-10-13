@@ -177,9 +177,33 @@ npm install        # 安装依赖
 npm run build      # 构建到 dist/
 npm run dev        # watch 模式（改动后自动重建）
 npm run typecheck  # TypeScript 严格模式检查
+npm test           # 运行单元测试（vitest）
 ```
 
-开发调试建议：在扩展管理页对 ReadTrail 点击「重新加载」后刷新测试页面；Service Worker 的日志可在扩展管理页「服务工作进程」链接打开的 DevTools 中查看。
+### 单元测试
+
+`tests/` 目录覆盖核心纯逻辑模块：
+
+- 阅读阈值判定（`reading-threshold`）
+- 查询解析与 CJK 分词（`query-parser`）
+- URL 规范化 / 敏感 URL / 浏览器内部页判断（`url`）
+- 备份导入导出校验（`backup-service`）
+- 隐私策略（自动与手动保存的例外规则）
+
+提交前请保证 `npm run typecheck` 与 `npm test` 全部通过。
+
+## 📋 更新日志
+
+### v0.3.0
+- 新增单元测试（vitest，46 个用例），覆盖阈值判定、分词、URL/隐私策略、备份校验
+- 修复：超过 2MB 的 JSON 备份无法导入（导入消息上限放宽至 64MB）
+- 修复：敏感 URL 判断过宽导致的误判（改为按注册域 + 路径精确匹配），`ref=` 不再误删 `reference=` 等参数
+- 修复：不再覆写页面 `history.pushState/replaceState`，SPA 路由改为轮询检测，避免污染宿主页面
+- 修复：Service Worker 重启期间自动采集失败后不再丢弃本次阅读，下个周期自动重试
+- 变更：总开关关闭时的跳过原因由 `insufficient-reading` 改为独立的 `disabled`
+
+### v0.2.0
+- 首个公开版本：自动记录、中文全文检索、独立记录库、隐私保护、备份导入导出
 
 ## ❓ 常见问题
 

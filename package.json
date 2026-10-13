@@ -1,13 +1,14 @@
 {
   "name": "readtrail",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "🔍ReadTrail · 读过即存，一搜即回 — 自动记录读过的网页，本地检索，随时找回。",
   "type": "module",
   "scripts": {
     "dev": "node scripts/build.mjs --watch",
     "build": "node scripts/build.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@mozilla/readability": "^0.5.0",
@@ -19,8 +20,9 @@
     "@types/chrome": "^0.0.287",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
+    "esbuild": "^0.21.5",
     "typescript": "^5.6.3",
-    "esbuild": "^0.21.5"
+    "vitest": "^4.1.11"
   },
   "allowScripts": {
     "esbuild@0.21.5": true

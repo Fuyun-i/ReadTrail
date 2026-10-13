@@ -12,63 +12,64 @@ const STORE_HOST_PATTERNS = [
 ];
 
 /**
- * 敏感域名/路径关键词：银行、支付、邮箱、登录、管理后台。
- * 命中任意子串即视为敏感。
+ * 敏感 host 精确/后缀匹配：银行、支付、邮箱等按注册域判断，
+ * 避免子串误判（如 `id.` 命中 `valid.com`、`pay.` 命中 `payload.xxx`）。
+ * 登录/后台类路径特征单独匹配 pathname。
  */
-const SENSITIVE_FRAGMENTS = [
+const SENSITIVE_HOSTS = new Set([
   // 银行
-  'bank',
-  'ebank',
-  'banking',
-  'icbc.com',
-  'ccb.com',
-  'cmbchina.com',
-  'boc.cn',
-  'abchina.com',
-  'bankcomm.com',
-  'psbc.com',
-  'cebbank.com',
-  'spdb.com',
-  'cib.com.cn',
-  'cgbchina.com.cn',
-  'pab.com.cn',
-  'boc.cn',
+  'icbc.com.cn', 'ccb.com', 'cmbchina.com', 'boc.cn', 'abchina.com',
+  'bankcomm.com', 'psbc.com', 'cebbank.com', 'spdb.com', 'cib.com.cn',
+  'cgbchina.com.cn', 'pab.com.cn',
   // 支付
-  'pay.',
-  'payment',
-  'paypal.com',
-  'alipay.com',
-  'tenpay.com',
-  'stripe.com',
-  'checkout.com',
-  'skrill.com',
+  'paypal.com', 'alipay.com', 'tenpay.com', 'stripe.com', 'checkout.com', 'skrill.com',
   // 邮箱
-  'mail.',
-  'mail-',
-  'outlook.',
-  'hotmail.com',
-  'gmail.com',
-  'ymail.com',
-  'imap',
-  'smtp',
-  // 登录 / 账户
-  'login',
-  'signin',
-  'sign-in',
-  'account.',
-  'auth.',
-  'passport.',
-  'sso.',
-  'id.',
-  'oauth',
-  // 管理后台
-  'admin',
-  'dashboard',
-  'console.',
-  'backend',
-  'manager.',
-  'wp-admin',
+  'gmail.com', 'hotmail.com', 'outlook.com', 'outlook.office.com', 'ymail.com',
+  'mail.qq.com', 'mail.163.com', 'mail.126.com', 'mail.sina.com.cn',
+]);
+
+/** host 片段匹配：命中即敏感（如所有 *.bank.* 域） */
+const SENSITIVE_HOST_FRAGMENTS = ['bank.', 'ebank.', 'banking.', '.bank.'];
+
+/** 登录 / 账户 / 管理后台：按路径关键词匹配 */
+const SENSITIVE_PATH_FRAGMENTS = [
+  '/login', '/signin', '/sign-in', '/signup', '/register',
+  '/oauth', '/sso/', '/passport', '/wp-login', '/wp-admin',
+  '/dashboard', '/admin',
 ];
+
+/**
+ * 判断 URL 是否命中敏感域名/路径关键词。
+ * host 按「注册域 + 后缀片段」匹配，路径按关键词匹配，避免普通内容页误判。
+ */
+export function isSensitiveUrl(url: string): { sensitive: boolean; matchedRule?: string } {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return { sensitive: false };
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  const registrable = getRegistrableDomain(host);
+
+  if (SENSITIVE_HOSTS.has(host) || SENSITIVE_HOSTS.has(registrable)) {
+    return { sensitive: true, matchedRule: host };
+  }
+  // host 片段：如 news.bank.example.com / my.ebank.cn
+  for (const fragment of SENSITIVE_HOST_FRAGMENTS) {
+    if (host.includes(fragment) || host.startsWith(fragment)) {
+      return { sensitive: true, matchedRule: fragment };
+    }
+  }
+  const path = parsed.pathname.toLowerCase();
+  for (const fragment of SENSITIVE_PATH_FRAGMENTS) {
+    if (path.includes(fragment)) {
+      return { sensitive: true, matchedRule: fragment };
+    }
+  }
+  return { sensitive: false };
+}
 
 /**
  * 规范化 URL：
@@ -86,11 +87,12 @@ export function canonicalizeUrl(rawUrl: string): string {
 
   url.hash = '';
 
-  const TRACKING_PARAM_PREFIXES = ['utm_', 'spm', 'fbclid', 'gclid', 'msclkid', 'yclid', '_ga', 'ref', 'ref_src'];
+  const TRACKING_PARAM_PREFIXES = ['utm_', 'spm', 'fbclid', 'gclid', 'msclkid', 'yclid', '_ga', 'ref=', 'ref_src'];
   const removed: string[] = [];
   url.searchParams.forEach((_value, key) => {
     const lower = key.toLowerCase();
-    if (TRACKING_PARAM_PREFIXES.some((p) => lower.startsWith(p) || lower === p)) {
+    // `ref=` 带等号，避免误删 reference / refresh 等正常参数
+    if (TRACKING_PARAM_PREFIXES.some((p) => (p.endsWith('=') ? lower === p.slice(0, -1) : lower.startsWith(p)))) {
       removed.push(key);
     }
   });
@@ -123,17 +125,6 @@ export function extractDomain(url: string): string {
   } catch {
     return '';
   }
-}
-
-/** 判断 URL 是否命中敏感域名/路径关键词 */
-export function isSensitiveUrl(url: string): { sensitive: boolean; matchedRule?: string } {
-  const lower = url.toLowerCase();
-  for (const fragment of SENSITIVE_FRAGMENTS) {
-    if (lower.includes(fragment)) {
-      return { sensitive: true, matchedRule: fragment };
-    }
-  }
-  return { sensitive: false };
 }
 
 /** 提取注册域（简易版：处理常见双段后缀） */

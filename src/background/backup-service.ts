@@ -169,7 +169,7 @@ export class BackupService {
 }
 
 /** 导入记录的结构校验（协议要求：不能直接信任未知数据） */
-function validatePageRecord(raw: unknown): PageRecord {
+export function validatePageRecord(raw: unknown): PageRecord {
   if (typeof raw !== 'object' || raw === null) {
     throw new Error('记录必须是对象');
   }

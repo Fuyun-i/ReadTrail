@@ -27,8 +27,6 @@ export class ReaderObserver {
     document.addEventListener('visibilitychange', this.onVisibilityChange);
     window.addEventListener('scroll', this.onScroll, { passive: true });
     window.addEventListener('popstate', this.onRouteChange);
-    wrapHistoryMethod('pushState', this.onRouteChange);
-    wrapHistoryMethod('replaceState', this.onRouteChange);
 
     this.timer = setInterval(this.tick, this.tickIntervalMs);
   }
@@ -65,6 +63,12 @@ export class ReaderObserver {
   // ---- 内部 ----
 
   private tick = (): void => {
+    // SPA 路由检测：不钩 history.pushState/replaceState（避免污染页面全局对象），
+    // 改为每次 tick 轮询 location.href，pushState/replaceState/popstate 均能覆盖
+    if (location.href !== this.currentUrl) {
+      this.onRouteChange();
+    }
+
     const now = Date.now();
     if (this.visibility === 'visible') {
       this.activeDurationMs += now - this.lastTickAt;
@@ -109,17 +113,4 @@ export class ReaderObserver {
     this.maxScrollRatio = 0;
     this.routeVersion++;
   };
-}
-
-function wrapHistoryMethod(name: 'pushState' | 'replaceState', notify: () => void): void {
-  const original = history[name].bind(history);
-  Object.defineProperty(history, name, {
-    value: (...args: Parameters<History['pushState']>) => {
-      const result = original(...args);
-      notify();
-      return result;
-    },
-    configurable: true,
-    writable: true,
-  });
 }
