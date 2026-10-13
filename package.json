@@ -2,7 +2,7 @@
   "name": "readtrail",
   "version": "0.2.0",
   "private": true,
-  "description": "ReadTrail — Find what you have read. 自动记录读过的网页，本地检索，随时找回。",
+  "description": "🔍ReadTrail · 读过即存，一搜即回 — 自动记录读过的网页，本地检索，随时找回。",
   "type": "module",
   "scripts": {
     "dev": "node scripts/build.mjs --watch",
