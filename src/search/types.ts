@@ -5,5 +5,12 @@ export type ParsedQuery = {
   from?: number;
   to?: number;
   domains?: string[];
+  tags?: string[];
+  /** 精确短语（引号包裹的内容，不分词） */
+  phrases?: string[];
+  /** 排除词（NOT 语义，前缀 - 的词） */
+  excludeTerms?: string[];
+  /** OR 分组：每组内的词独立召回后 union */
+  orGroups?: string[][];
   confidence: number;
 };

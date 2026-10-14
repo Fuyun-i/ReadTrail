@@ -1,6 +1,7 @@
 // 历史标签页
 import type { PageRecord } from '../../shared/types';
 import { formatDate, formatDuration } from '../../ui/utils';
+import { TagList } from '../../ui/TagBadge';
 
 
 export function HistoryTab(props: {
@@ -11,6 +12,7 @@ export function HistoryTab(props: {
   onPreview: (id: string) => void;
   onDelete: (id: string) => void;
   onLoadMore: () => void;
+  onTagClick?: (tag: string) => void;
 }) {
   const { pages, loading, hasMore, onLoadMore } = props;
   return (
@@ -37,6 +39,7 @@ export function HistoryTab(props: {
                     <span>{formatDate(page.lastVisitedAt)}</span>
                     <span>读过 {formatDuration(page.readingDurationMs)} · {page.visitCount} 次</span>
                   </div>
+                  <TagList tags={page.tags} onClick={props.onTagClick} />
                 </div>
                 <div className="result-actions">
                   <button aria-label={`打开 ${page.title || page.url}`} onClick={() => props.onOpen(page.url)}>打开</button>

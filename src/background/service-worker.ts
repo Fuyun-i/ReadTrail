@@ -15,6 +15,7 @@ import { MessageRouter } from './message-router';
 import { BackupService } from './backup-service';
 import { IndexRecovery, rebuildFromDatabase } from './index-recovery';
 import { RetentionCleaner } from './retention-cleaner';
+import { SearchHistoryRepository } from '../storage/repositories/search-history-repository';
 
 // ---- 辅助函数 ----
 
@@ -71,12 +72,20 @@ async function normalizeSearchInput(raw: SearchInput): Promise<SearchInput> {
   let parsedFrom: number | undefined;
   let parsedTo: number | undefined;
   const parserDomains: string[] = [];
+  const parserTags: string[] = [];
+  let parserPhrases: string[] | undefined;
+  let parserExcludeTerms: string[] | undefined;
+  let parserOrGroups: string[][] | undefined;
   try {
     const parsed = await queryParser.parse(text);
     text = parsed.text;
     parsedFrom = parsed.from;
     parsedTo = parsed.to;
     if (parsed.domains) parserDomains.push(...parsed.domains);
+    if (parsed.tags) parserTags.push(...parsed.tags);
+    parserPhrases = parsed.phrases;
+    parserExcludeTerms = parsed.excludeTerms;
+    parserOrGroups = parsed.orGroups;
   } catch {
     // 保留原始 text
   }
@@ -104,6 +113,10 @@ async function normalizeSearchInput(raw: SearchInput): Promise<SearchInput> {
     sort: raw.sort ?? 'relevance',
   };
   if (raw.source) searchInput.source = raw.source;
+  if (parserTags.length) searchInput.tags = parserTags;
+  if (parserPhrases) searchInput.phrases = parserPhrases;
+  if (parserExcludeTerms) searchInput.excludeTerms = parserExcludeTerms;
+  if (parserOrGroups) searchInput.orGroups = parserOrGroups;
   return searchInput;
 }
 
@@ -111,6 +124,7 @@ async function normalizeSearchInput(raw: SearchInput): Promise<SearchInput> {
 const pageRepo = new PageRepository();
 const visitRepo = new VisitRepository();
 const settingsRepo = new SettingsRepository();
+const searchHistoryRepo = new SearchHistoryRepository();
 const queryParser = new QueryParser();
 const searchProvider = new FlexSearchProvider(async (ids: string[], listOptions) => {
   if (ids.length === 0) {
@@ -361,6 +375,41 @@ async function handleWorkerMessage(message: WorkerMessage): Promise<unknown> {
       }
       return { opened: true };
     }
+    case 'GET_TAGS': {
+      return pageRepo.listAllTags();
+    }
+    case 'UPDATE_TAGS': {
+      const { pageId, tags } = message.payload;
+      const page = await pageRepo.findById(pageId);
+      if (!page) throw new AppError('PAGE_NOT_FOUND', `页面不存在: ${pageId}`);
+      // 全量替换标签
+      const updated = { ...page, tags: tags.map((t) => t.trim().toLowerCase()).filter(Boolean), updatedAt: Date.now() };
+      await pageRepo.overwrite(updated);
+      await searchProvider.update(updated);
+      return { page: updated };
+    }
+    case 'GET_SEARCH_HISTORY': {
+      return searchHistoryRepo.getAll();
+    }
+    case 'CLEAR_SEARCH_HISTORY': {
+      await searchHistoryRepo.clear();
+      return { cleared: true };
+    }
+    case 'GET_RELATED': {
+      const { pageId } = message.payload;
+      const page = await pageRepo.findById(pageId);
+      if (!page) return [];
+      // 基于 title + excerpt 搜索相似文章
+      const queryText = (page.title + ' ' + page.excerpt).trim();
+      if (!queryText) return [];
+      const results = await searchProvider.search({
+        query: queryText,
+        limit: 6,
+        sort: 'relevance',
+      });
+      // 排除自身，取 top 5
+      return results.filter((r) => r.page.id !== pageId).slice(0, 5);
+    }
     default:
       throw new AppError('INVALID_MESSAGE', '未处理的消息类型');
   }
@@ -381,8 +430,13 @@ router.register('IMPORT_JSON', handleWorkerMessage);
 router.register('CLEAR_ALL', handleWorkerMessage);
 router.register('CLEAR_BEFORE', handleWorkerMessage);
 router.register('OPEN_LIBRARY', handleWorkerMessage);
+router.register('GET_TAGS', handleWorkerMessage);
+router.register('UPDATE_TAGS', handleWorkerMessage);
+router.register('GET_SEARCH_HISTORY', handleWorkerMessage);
+router.register('CLEAR_SEARCH_HISTORY', handleWorkerMessage);
+router.register('GET_RELATED', handleWorkerMessage);
 
 // 导出给测试使用
-export { router, pageRepo, visitRepo, settingsRepo, searchProvider, coordinator, handleWorkerMessage, normalizeSearchInput, indexRecovery, retentionCleaner };
+export { router, pageRepo, visitRepo, settingsRepo, searchHistoryRepo, searchProvider, coordinator, handleWorkerMessage, normalizeSearchInput, indexRecovery, retentionCleaner };
 
 export type { PageRecord, WorkerResponse };

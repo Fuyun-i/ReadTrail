@@ -2,7 +2,7 @@
 // 数据库名称与版本号（对应 architecture.md 第 8 节）
 
 export const DB_NAME = 'readtrail';
-export const DB_VERSION = 2;
+export const DB_VERSION = 3;
 
 export type StoreName = 'pages' | 'visits' | 'settings' | 'meta';
 
@@ -95,7 +95,7 @@ export async function dbGetAllByIndex<T>(
   range?: IDBKeyRange | IDBValidKey,
 ): Promise<T[]> {
   const tx = db.transaction(store, 'readonly');
-  const index = tx.objectStore(store).index(indexName);
+  const objectStore = tx.objectStore(store); const index = objectStore.index(indexName);
   return requestToPromise(index.getAll(range) as IDBRequest<T[]>);
 }
 
@@ -111,7 +111,7 @@ export async function dbGetAllByIndexRange<T>(
   options?: { limit?: number; reverse?: boolean },
 ): Promise<T[]> {
   const tx = db.transaction(store, 'readonly');
-  const index = tx.objectStore(store).index(indexName);
+  const objectStore = tx.objectStore(store); const index = objectStore.index(indexName);
   // 有 limit 时用 openKeyCursor 逐条收集，避免 getAll 拉全量再 slice
   if (options?.limit !== undefined) {
     const results: T[] = [];
@@ -121,7 +121,7 @@ export async function dbGetAllByIndexRange<T>(
       cursorReq.onsuccess = () => {
         const cursor = cursorReq.result;
         if (cursor && results.length < options.limit!) {
-          const getReq = index.get(cursor.primaryKey);
+          const getReq = objectStore.get(cursor.primaryKey);
           getReq.onsuccess = () => {
             if (getReq.result !== undefined) results.push(getReq.result as T);
             cursor.continue();
@@ -161,7 +161,7 @@ export async function dbCountByIndex(
   range?: IDBKeyRange | IDBValidKey,
 ): Promise<number> {
   const tx = db.transaction(store, 'readonly');
-  const index = tx.objectStore(store).index(indexName);
+  const objectStore = tx.objectStore(store); const index = objectStore.index(indexName);
   return requestToPromise(index.count(range));
 }
 
@@ -175,7 +175,7 @@ export async function dbDeleteByIndexRange(
   range: IDBKeyRange | undefined,
 ): Promise<number> {
   const tx = db.transaction(store, 'readwrite');
-  const index = tx.objectStore(store).index(indexName);
+  const objectStore = tx.objectStore(store); const index = objectStore.index(indexName);
   let count = 0;
   await new Promise<void>((resolve, reject) => {
     const cursorReq = range !== undefined ? index.openKeyCursor(range) : index.openKeyCursor();

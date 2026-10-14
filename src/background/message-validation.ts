@@ -198,6 +198,12 @@ const VALIDATORS: Record<string, PayloadValidator | undefined> = {
     }
     optionalEnum(obj, 'section', ['search', 'history', 'settings'] as const);
   },
+  GET_TAGS: () => {},
+  UPDATE_TAGS: (p) => {
+    const obj = requireObject(p);
+    requireString(obj, 'pageId', MAX_PAGE_ID_LENGTH);
+    optionalStringArray(obj, 'tags', 100, 50);
+  },
 };
 
 /** 消息入口统一调用：未知类型在 MessageRouter 已处理；这里校验 payload */

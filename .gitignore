@@ -18,3 +18,12 @@ output/
 # OS
 .DS_Store
 Thumbs.db
+
+
+# Playwright skill (uploaded, not part of project source)
+playwright/
+
+# E2E test artifacts
+.playwright-test-profile/
+playwright-cli.json
+e2e-test.mjs
