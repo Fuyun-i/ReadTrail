@@ -92,6 +92,21 @@ export const api = {
   clearAll(): Promise<{ cleared: boolean }> {
     return send({ type: 'CLEAR_ALL' });
   },
+  getTags(): Promise<Array<{ tag: string; count: number }>> {
+    return send({ type: 'GET_TAGS' });
+  },
+  updateTags(pageId: string, tags: string[]): Promise<{ page: PageRecord }> {
+    return send({ type: 'UPDATE_TAGS', payload: { pageId, tags } });
+  },
+  getSearchHistory(): Promise<Array<{ query: string; timestamp: number }>> {
+    return send({ type: 'GET_SEARCH_HISTORY' });
+  },
+  clearSearchHistory(): Promise<{ cleared: boolean }> {
+    return send({ type: 'CLEAR_SEARCH_HISTORY' });
+  },
+  getRelated(pageId: string): Promise<SearchResult[]> {
+    return send({ type: 'GET_RELATED', payload: { pageId } });
+  },
 };
 
 /** base64 → 下载文件 */

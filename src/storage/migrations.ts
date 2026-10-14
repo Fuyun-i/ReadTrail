@@ -7,6 +7,7 @@ import type { StoreName } from './db';
  * object store 结构声明：
  * v1 — pages / visits / settings / meta
  * v2 — pages 新增 visitCount 索引（用于"按访问次数排序"走索引而非全量加载）
+ * v3 — pages 新增 tags 多值索引（用于"按标签筛选"走索引而非全量加载）
  */
 export const STORES: Record<StoreName, { keyPath: string; indexes: Array<{ name: string; keyPath: string | string[] }> }> = {
   pages: {
@@ -16,6 +17,7 @@ export const STORES: Record<StoreName, { keyPath: string; indexes: Array<{ name:
       { name: 'domain', keyPath: 'domain' },
       { name: 'lastVisitedAt', keyPath: 'lastVisitedAt' },
       { name: 'visitCount', keyPath: 'visitCount' },
+      { name: 'tags', keyPath: 'tags' },
     ],
   },
   visits: {
@@ -39,6 +41,9 @@ export function applyMigrations(db: IDBDatabase, oldVersion: number, _newVersion
       case 1:
         upgradeToV2(tx);
         break;
+      case 2:
+        upgradeToV3(tx);
+        break;
       default:
         break;
     }
@@ -49,7 +54,14 @@ function createStoreV1(db: IDBDatabase): void {
   for (const [name, def] of Object.entries(STORES) as Array<[StoreName, (typeof STORES)[StoreName]]>) {
     const store = db.createObjectStore(name, { keyPath: def.keyPath });
     for (const idx of def.indexes) {
-      store.createIndex(idx.name, idx.keyPath);
+      // v1 建表时包含所有索引（含 v3 的 tags），
+      // 这样全新安装直接到最新版本，不需要逐版本迁移
+      if (idx.name === 'tags') {
+        // tags 是多值索引（MultiEntry），keyPath 是数组
+        store.createIndex(idx.name, idx.keyPath, { multiEntry: true });
+      } else {
+        store.createIndex(idx.name, idx.keyPath);
+      }
     }
   }
 }
@@ -60,5 +72,16 @@ function upgradeToV2(tx?: IDBTransaction): void {
   const store = tx.objectStore('pages');
   if (!store.indexNames.contains('visitCount')) {
     store.createIndex('visitCount', 'visitCount');
+  }
+}
+
+/** v2 → v3：为 pages store 添加 tags 多值索引 */
+function upgradeToV3(tx?: IDBTransaction): void {
+  if (!tx) return;
+  const store = tx.objectStore('pages');
+  if (!store.indexNames.contains('tags')) {
+    // multiEntry: true 使得 tags: ['rust', 'async'] 的记录
+    // 可以通过 index.get('rust') 和 index.get('async') 分别命中
+    store.createIndex('tags', 'tags', { multiEntry: true });
   }
 }

@@ -240,6 +240,7 @@ export function validatePageRecord(raw: unknown): PageRecord {
     maxScrollRatio: typeof r.maxScrollRatio === 'number' ? (r.maxScrollRatio as number) : 0,
     source: r.source === 'manual' ? 'manual' : 'auto',
     status: 'captured',
+    tags: Array.isArray(r.tags) ? (r.tags as string[]).filter((t) => typeof t === 'string').map((t) => t.toLowerCase()) : undefined,
     createdAt: typeof r.createdAt === 'number' ? (r.createdAt as number) : now,
     updatedAt: typeof r.updatedAt === 'number' ? (r.updatedAt as number) : now,
   };

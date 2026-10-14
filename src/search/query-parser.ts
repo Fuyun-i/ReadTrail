@@ -1,6 +1,5 @@
 // ===== 查询解析器（architecture.md 第 9 节）=====
-// 首版：解析时间短语、域名过滤语法 domain:xxx，其余作为关键词。
-// 无本地模型时 confidence 固定 0，仅执行规则解析。
+// 支持：时间短语、domain: 过滤、tag: 过滤、OR 操作符、NOT 排除（-word）、精确短语（"..."）
 
 import type { ParsedQuery } from './types';
 
@@ -34,6 +33,9 @@ export class QueryParser {
     let from: number | undefined;
     let to: number | undefined;
     const domains: string[] = [];
+    const tags: string[] = [];
+    const phrases: string[] = [];
+    const excludeTerms: string[] = [];
 
     // domain:example.com 过滤语法（可多次）
     text = text.replace(/(?:domain|站点|网站)[:：](\S+)/gi, (_m, domain: string) => {
@@ -41,10 +43,21 @@ export class QueryParser {
       return '';
     });
 
+    // tag:rust 过滤语法（可多次）
+    text = text.replace(/tag[:：](\S+)/gi, (_m, tag: string) => {
+      tags.push(tag.toLowerCase());
+      return '';
+    });
+
+    // 精确短语："async runtime" → 提取后从 text 中移除
+    text = text.replace(/"([^"]+)"/g, (_m, phrase: string) => {
+      phrases.push(phrase);
+      return ' ';
+    });
+
     // 时间短语
     for (const { pattern, days } of TIME_PHRASES) {
       if (pattern.test(text)) {
-        // "上周/昨天" 等区间语义：从 N 天前到 N-1 天前；这里统一放宽为「从 N 天前到现在」
         from = now - days * 86_400_000;
         text = text.replace(pattern, ' ');
         break;
@@ -63,6 +76,20 @@ export class QueryParser {
       }
     }
 
+    // NOT 排除：-word
+    text = text.replace(/(?:^|\s)-(\S+)/g, (_m, word: string) => {
+      excludeTerms.push(word.toLowerCase());
+      return ' ';
+    });
+
+    // OR 分组：检测 "word1 OR word2" 模式
+    const orGroups: string[][] = [];
+    const orPattern = /(\S+)\s+(?:OR|或|||)\s+(\S+)/gi;
+    text = text.replace(orPattern, (_m, left: string, right: string) => {
+      orGroups.push([left.toLowerCase(), right.toLowerCase()]);
+      return ' ';
+    });
+
     text = text.replace(/\s+/g, ' ').trim();
 
     return {
@@ -70,13 +97,16 @@ export class QueryParser {
       from,
       to,
       domains: domains.length ? domains : undefined,
-      confidence: 0, // 无本地模型，仅规则解析
+      tags: tags.length ? tags : undefined,
+      phrases: phrases.length ? phrases : undefined,
+      excludeTerms: excludeTerms.length ? excludeTerms : undefined,
+      orGroups: orGroups.length ? orGroups : undefined,
+      confidence: 0,
     };
   }
 }
 
 /** 简易 CJK/英文混合分词：连续英文按词，CJK 按二元组 */
-// CJK 字符范围正则（模块级常量，避免每次调用重新创建）
 const CJK_RUN = /[一-鿿぀-ヿ가-힯]/;
 
 export function tokenize(text: string): string[] {
@@ -100,7 +130,6 @@ export function tokenize(text: string): string[] {
   for (const ch of text) {
     if (cjkRun.test(ch)) {
       flushLatin();
-      // 单个 CJK 字符也输出，保证 1 字查询可命中
       tokens.push(ch);
       pushCjkChar(ch);
     } else if (/\w/.test(ch)) {

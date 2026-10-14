@@ -31,6 +31,7 @@ export type PageRecord = {
   source: CaptureSource;
   status: CaptureStatus;
   createdAt: number;
+  tags?: string[];
   updatedAt: number;
 };
 
@@ -68,6 +69,10 @@ export type SearchInput = {
   limit?: number;
   offset?: number;
   sort?: 'relevance' | 'recent' | 'frequent';
+  tags?: string[];
+  phrases?: string[];
+  excludeTerms?: string[];
+  orGroups?: string[][];
 };
 
 export type SearchMatchField = 'title' | 'domain' | 'text' | 'excerpt';

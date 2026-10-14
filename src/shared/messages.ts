@@ -15,6 +15,8 @@ import type {
   ValidationResult,
 } from './types';
 
+type TagSummary = { tag: string; count: number };
+
 /** Content Script → Service Worker */
 export type ContentToWorkerMessage =
   | { type: 'READING_PROGRESS'; payload: ReadingSnapshot }
@@ -36,6 +38,11 @@ export type WorkerMessage =
   | { type: 'IMPORT_JSON'; requestId: string; payload: { data: unknown; options?: ImportOptions } }
   | { type: 'CLEAR_ALL'; requestId: string }
   | { type: 'CLEAR_BEFORE'; requestId: string; payload: { before: number } }
+  | { type: 'GET_TAGS'; requestId: string }
+  | { type: 'UPDATE_TAGS'; requestId: string; payload: { pageId: string; tags: string[] } }
+  | { type: 'GET_SEARCH_HISTORY'; requestId: string }
+  | { type: 'CLEAR_SEARCH_HISTORY'; requestId: string }
+  | { type: 'GET_RELATED'; requestId: string; payload: { pageId: string } }
   /** 打开（或激活）独立记录库；可携带查询与目标分区（popup → SW） */
   | { type: 'OPEN_LIBRARY'; requestId?: string; payload?: { query?: string; section?: 'search' | 'history' | 'settings' } };
 
@@ -68,7 +75,14 @@ export interface WorkerResponseMap {
   CLEAR_ALL: { cleared: boolean };
   CLEAR_BEFORE: { cleared: number };
   OPEN_LIBRARY: { opened: boolean };
+  GET_TAGS: TagSummary[];
+  UPDATE_TAGS: { page: PageRecord };
+  GET_SEARCH_HISTORY: Array<{ query: string; timestamp: number }>;
+  CLEAR_SEARCH_HISTORY: { cleared: boolean };
+  GET_RELATED: SearchResult[];
 }
+
+export type { TagSummary };
 
 export function isWorkerMessage(value: unknown): value is WorkerMessage {
   return (

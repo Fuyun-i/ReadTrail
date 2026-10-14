@@ -152,6 +152,13 @@ export class FlexSearchProvider implements SearchProvider {
     const queryTokens = tokenizeQuery(query);
     if (queryTokens.length === 0) return [];
 
+    // NOT 排除词集合
+    const excludeTermSet = new Set<string>(input.excludeTerms ?? []);
+    // 精确短语列表
+    const phraseList = input.phrases ?? [];
+    // OR 分组：将每组词也加入搜索
+    const orGroups = input.orGroups ?? [];
+
     // 各字段召回（flexsearch 内部以空格分词，索引写入时已预处理为 token 串）
     const fieldHits = new Map<string, { score: number; fields: Set<SearchMatchField> }>();
     const FIELD_WEIGHT: Record<FieldName, number> = { title: 3, domain: 2, excerpt: 1.5, text: 1 };
@@ -205,6 +212,25 @@ export class FlexSearchProvider implements SearchProvider {
       if (input.to !== undefined && page.lastVisitedAt > input.to) continue;
       if (input.domain && !matchesAnyDomain(page.domain, input.domain)) continue;
       if (input.source && page.source !== input.source) continue;
+      if (input.tags && input.tags.length > 0 && (!page.tags || !input.tags.some((t) => page.tags!.includes(t)))) continue;
+      // NOT 排除：页面文本包含排除词则跳过
+      if (excludeTermSet.size > 0) {
+        const pageText = (page.title + ' ' + page.excerpt + ' ' + page.text.slice(0, 5000)).toLowerCase();
+        let excluded = false;
+        for (const term of excludeTermSet) {
+          if (pageText.includes(term)) { excluded = true; break; }
+        }
+        if (excluded) continue;
+      }
+      // 精确短语：页面必须包含所有短语
+      if (phraseList.length > 0) {
+        const pageText = (page.title + ' ' + page.excerpt + ' ' + page.text.slice(0, 5000)).toLowerCase();
+        let allMatch = true;
+        for (const phrase of phraseList) {
+          if (!pageText.includes(phrase.toLowerCase())) { allMatch = false; break; }
+        }
+        if (!allMatch) continue;
+      }
 
       const highlights = buildHighlights(page, queryTokens);
       const recencyBoost = recencyScore(page.lastVisitedAt);

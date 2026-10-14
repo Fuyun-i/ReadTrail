@@ -72,6 +72,7 @@ export class PageRepository {
         readingDurationMs: Math.max(record.readingDurationMs, existing.readingDurationMs),
         maxScrollRatio: Math.max(record.maxScrollRatio, existing.maxScrollRatio),
         updatedAt: Date.now(),
+        tags: record.tags ?? existing.tags,
       };
       await dbPut(db, 'pages', merged);
       return merged;
@@ -206,6 +207,83 @@ export class PageRepository {
     if (ids.length === 0) return [];
     const db = await this.dbPromise;
     return dbGetBatch<PageRecord>(db, 'pages', ids);
+  }
+
+
+  // ---- 标签管理 ----
+
+  /** 为指定页面添加标签（去重，幂等） */
+  async addTag(pageId: string, tag: string): Promise<PageRecord | undefined> {
+    const record = await this.findById(pageId);
+    if (!record) return undefined;
+    const normalized = tag.trim().toLowerCase();
+    if (!normalized) return record;
+    const tags = record.tags ?? [];
+    if (tags.includes(normalized)) return record; // 幂等：已存在则不重复添加
+    const updated: PageRecord = {
+      ...record,
+      tags: [...tags, normalized],
+      updatedAt: Date.now(),
+    };
+    await this.overwrite(updated);
+    return updated;
+  }
+
+  /** 从指定页面移除标签 */
+  async removeTag(pageId: string, tag: string): Promise<PageRecord | undefined> {
+    const record = await this.findById(pageId);
+    if (!record) return undefined;
+    if (!record.tags || record.tags.length === 0) return record;
+    const normalized = tag.trim().toLowerCase();
+    const updated: PageRecord = {
+      ...record,
+      tags: record.tags.filter((t) => t !== normalized),
+      updatedAt: Date.now(),
+    };
+    await this.overwrite(updated);
+    return updated;
+  }
+
+  /** 按标签筛选页面（走 tags 多值索引） */
+  async listByTag(tag: string, input: PageListInput = {}): Promise<PageRecord[]> {
+    const db = await this.dbPromise;
+    const normalized = tag.trim().toLowerCase();
+    if (!normalized) return [];
+
+    // 走 tags 多值索引获取所有含该标签的记录
+    let records = await dbGetAllByIndex<PageRecord>(db, 'pages', 'tags', normalized);
+
+    // 应用额外过滤（时间范围等）
+    records = this.applyFilters(records, input);
+
+    // 排序
+    const sort = input.sort ?? 'recent';
+    if (sort === 'frequent') {
+      records.sort((a, b) => b.visitCount - a.visitCount || b.lastVisitedAt - a.lastVisitedAt);
+    } else {
+      records.sort((a, b) => b.lastVisitedAt - a.lastVisitedAt);
+    }
+
+    // 分页
+    const offset = input.offset ?? 0;
+    const limit = input.limit ?? Number.MAX_SAFE_INTEGER;
+    return records.slice(offset, offset + limit);
+  }
+
+  /** 获取所有标签及其使用计数 */
+  async listAllTags(): Promise<Array<{ tag: string; count: number }>> {
+    const records = await this.list({ limit: Number.MAX_SAFE_INTEGER });
+    const tagMap = new Map<string, number>();
+    for (const record of records) {
+      if (record.tags) {
+        for (const tag of record.tags) {
+          tagMap.set(tag, (tagMap.get(tag) ?? 0) + 1);
+        }
+      }
+    }
+    return Array.from(tagMap.entries())
+      .map(([tag, count]) => ({ tag, count }))
+      .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
   }
 
   /**

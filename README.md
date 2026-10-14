@@ -52,6 +52,18 @@
 - 索引健康检查与一键重建
 - 设置页完整控件：阅读时长、滚动比例、正文最短长度、保留天数、搜索结果上限、排除/允许域名
 
+### 🏷️ 标签与收藏
+- 为页面添加自定义标签，搜索结果和历史记录中展示标签徽章
+- 标签管理面板汇总所有标签及使用计数，点击标签快速筛选
+- `tag:rust` 查询语法按标签过滤搜索结果
+- 预览弹窗中直接添加/移除标签
+
+### 💡 搜索增强
+- **搜索建议**：输入时自动从标题、域名、搜索历史、热门标签中提取匹配建议，键盘 ↑↓ 选择
+- **搜索历史**：自动记录最近 20 个搜索词（去重），搜索框 focus 时展示历史下拉
+- **高级查询语法**：OR 操作符（`rust OR go`）、NOT 排除（`rust -tokio`）、精确短语（`"async runtime"`）
+- **相关推荐**：预览弹窗展示基于标题和摘要的相似文章推荐（top 5）
+
 ### 🛡️ 隐私优先
 | 保护 | 说明 |
 | --- | --- |
@@ -109,6 +121,10 @@ domain:github.com node   # 限定 github.com 域名
 昨天 typescript           # 只搜昨天及之后保存的记录
 上周 flexsearch           # 支持中文与英文（last week）时间短语
 3天前 vite                # 相对时间
+tag:rust async           # 按标签筛选 + 关键词搜索
+rust OR go               # OR 操作符：召回含 rust 或 go 的结果
+rust -tokio              # NOT 排除：召回含 rust 但排除含 tokio 的结果
+"async runtime" tokio    # 精确短语：引号内作为整体匹配
 ```
 
 ### 设置
@@ -189,19 +205,42 @@ npm run format     # Prettier 格式化
 
 ### 单元测试
 
-`tests/` 目录覆盖核心纯逻辑模块：
+`tests/` 目录覆盖核心模块（23 个测试文件，201 个用例）：
 
 - 阅读阈值判定（`reading-threshold`）
-- 查询解析与 CJK 分词（`query-parser`）
+- 查询解析与 CJK 分词（`query-parser`）+ 高级语法 OR/NOT/精确短语/tag（`query-parser-advanced`）
 - URL 规范化 / 敏感 URL / 浏览器内部页判断（`url`）
 - 备份导入导出校验（`backup-service`）
 - 隐私策略（自动与手动保存的例外规则）
-- 消息路由（`message-router`）
-- 搜索提供者（`search-provider`）
+- 消息路由（`message-router`）+ 消息校验（`message-validation`）
+- 搜索提供者（`search-provider`）+ 搜索建议（`search-suggester`）
+- 标签 CRUD（`tag-crud`）+ 搜索历史存储（`search-history-repository`）
+- 数据层集成测试：PageRepository / VisitRepository / SettingsRepository（fake-indexeddb）
+- 采集协调器（`capture-coordinator`）+ 保留清理（`retention-cleaner`）+ 索引恢复（`index-recovery`）
+- 正文提取（`article-extractor`）+ 阅读观察（`reader-observer`）
+- UI 工具函数 + 高亮 + Error Boundary
 
 提交前请保证 `npm run typecheck` 与 `npm test` 全部通过。
 
 ## 📋 更新日志
+
+### v0.5.0
+
+**标签与收藏系统**
+- PageRecord 新增 `tags` 字段，DB migration v2→v3 添加 tags 多值索引
+- PageRepository 新增 `addTag`/`removeTag`/`listByTag`/`listAllTags` 方法
+- 消息协议新增 `GET_TAGS`/`UPDATE_TAGS`，UI 支持标签显示与编辑
+- 标签管理面板展示所有标签及计数，`tag:rust` 查询语法按标签筛选
+
+**搜索增强**
+- 高级查询语法：OR 操作符（`rust OR go`）、NOT 排除（`rust -tokio`）、精确短语（`"async runtime"`）
+- 搜索建议/自动补全：从标题、域名、搜索历史、热门标签提取建议，键盘导航
+- 搜索历史记录：最近 20 个搜索词去重存储，搜索框 focus 时展示历史下拉
+- 相关推荐：预览弹窗展示基于标题和摘要的相似文章（top 5）
+
+**测试覆盖**
+- 新增 12 个测试文件、36 个测试用例，总计 23 文件 201 用例全部通过
+- 覆盖：QueryParser 高级语法、SearchSuggester、标签 CRUD、搜索历史存储
 
 ### v0.4.1
 

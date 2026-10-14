@@ -2,6 +2,7 @@
 import type { SearchResult } from '../../shared/types';
 import { formatDate, formatDuration } from '../../ui/utils';
 import { renderHighlighted } from '../../ui/highlight';
+import { TagList } from '../../ui/TagBadge';
 import type { SortMode } from '../hooks/useSearch';
 
 export function SearchTab(props: {
@@ -17,6 +18,7 @@ export function SearchTab(props: {
   onOpen: (url: string) => void;
   onPreview: (id: string) => void;
   onDelete: (id: string) => void;
+  onTagClick?: (tag: string) => void;
 }) {
   const { query, setQuery, domainFilter, setDomainFilter, sort, setSort, onSearch, results, loading } = props;
 
@@ -26,7 +28,7 @@ export function SearchTab(props: {
         <input
           className="search-input"
           autoFocus
-          placeholder="搜索标题、正文、域名…（支持 中文 / English / domain:example.com / 昨天看过）"
+          placeholder="搜索标题、正文、域名…（支持 tag:rust / domain:github.com / 昨天看过）"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && onSearch()}
@@ -70,6 +72,7 @@ export function SearchTab(props: {
                   <span>读过 {formatDuration(page.readingDurationMs)} · {page.visitCount} 次</span>
                 </div>
                 {page.excerpt && <div className="result-excerpt">{renderHighlighted(page.excerpt, highlights, 'excerpt')}</div>}
+                <TagList tags={page.tags} onClick={props.onTagClick} />
               </div>
               <div className="result-actions">
                 <button aria-label={`打开 ${page.title || page.url}`} onClick={() => props.onOpen(page.url)}>打开</button>
