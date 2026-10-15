@@ -11,7 +11,7 @@ export function buildManifest() {
     description: "🔍ReadTrail · 读过即存，一搜即回 — 本地自动记录与检索。",
     minimum_chrome_version: '116',
 
-    permissions: ['storage', 'tabs', 'contextMenus', 'scripting', 'downloads'],
+    permissions: ['storage', 'tabs', 'contextMenus', 'downloads'],
     host_permissions: ['http://*/*', 'https://*/*'],
 
     background: {

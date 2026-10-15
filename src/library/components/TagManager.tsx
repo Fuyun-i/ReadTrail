@@ -1,7 +1,6 @@
 // 标签管理面板 — 展示所有标签及使用计数，点击标签可筛选
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../../ui/api';
-import type { PageRecord } from '../../shared/types';
 import { TagBadge } from '../../ui/TagBadge';
 
 export function TagManager(props: {
@@ -9,8 +8,6 @@ export function TagManager(props: {
 }) {
   const [tags, setTags] = useState<Array<{ tag: string; count: number }>>([]);
   const [loading, setLoading] = useState(true);
-  const [editingPageId, setEditingPageId] = useState<string | null>(null);
-  const [newTag, setNewTag] = useState('');
 
   const refresh = useCallback(async () => {
     setLoading(true);

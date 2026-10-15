@@ -76,36 +76,36 @@ function makeMocks() {
   const mockPrivacy = {
     evaluate: vi.fn<(input: PrivacyInput) => Promise<PrivacyDecision>>().mockResolvedValue({ allowed: true }),
     evaluateManual: vi.fn<(input: PrivacyInput) => Promise<PrivacyDecision>>().mockResolvedValue({ allowed: true, matchedRule: 'manual-override' }),
-  } as unknown as PrivacyPolicy;
+  };
 
   const mockPages = {
     findByCanonicalUrl: vi.fn<(url: string) => Promise<PageRecord | undefined>>().mockResolvedValue(undefined),
     upsert: vi.fn<(record: PageRecord) => Promise<PageRecord>>().mockImplementation(async (r) => r),
-  } as unknown as PageRepository;
+  };
 
   const mockVisits = {
     create: vi.fn<(record: VisitRecord) => Promise<void>>().mockResolvedValue(undefined),
-  } as unknown as VisitRepository;
+  };
 
   const mockSettings = {
     get: vi.fn<() => Promise<UserSettings>>().mockResolvedValue(makeSettings()),
-  } as unknown as SettingsRepository;
+  };
 
   const mockSearch = {
     update: vi.fn<(record: PageRecord) => Promise<void>>().mockResolvedValue(undefined),
     markNeedsRebuild: vi.fn(),
-  } as unknown as SearchProvider;
+  };
 
   return { mockPrivacy, mockPages, mockVisits, mockSettings, mockSearch };
 }
 
 function makeCoordinator(mocks: ReturnType<typeof makeMocks>) {
   return new CaptureCoordinator(
-    mocks.mockPrivacy,
-    mocks.mockPages,
-    mocks.mockVisits,
-    mocks.mockSettings,
-    mocks.mockSearch,
+    mocks.mockPrivacy as unknown as PrivacyPolicy,
+    mocks.mockPages as unknown as PageRepository,
+    mocks.mockVisits as unknown as VisitRepository,
+    mocks.mockSettings as unknown as SettingsRepository,
+    mocks.mockSearch as unknown as SearchProvider,
     () => FIXED_NOW,
   );
 }

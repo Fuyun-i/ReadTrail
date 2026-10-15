@@ -13,6 +13,7 @@ function makePage(overrides: Partial<PageRecord> = {}): PageRecord {
     text: 'Some text content here for testing purposes.',
     excerpt: 'Some text content',
     source: 'auto',
+    status: 'captured',
     visitCount: 1,
     firstVisitedAt: Date.now(),
     lastVisitedAt: Date.now(),
@@ -34,8 +35,8 @@ describe('SearchSuggester', () => {
     ];
     const suggestions = suggester.suggestFromPages(pages, 'rust', 5);
     expect(suggestions.length).toBe(2);
-    expect(suggestions[0].text).toContain('Rust');
-    expect(suggestions[0].type).toBe('title');
+    expect(suggestions[0]!.text).toContain('Rust');
+    expect(suggestions[0]!.type).toBe('title');
   });
 
   it('域名前缀匹配', () => {
@@ -59,7 +60,7 @@ describe('SearchSuggester', () => {
     suggester.setSearchHistory(['rust async', 'go channels', 'python asyncio']);
     const suggestions = suggester.suggestFromHistory('async', 5);
     expect(suggestions.length).toBe(2);
-    expect(suggestions[0].type).toBe('history');
+    expect(suggestions[0]!.type).toBe('history');
   });
 
   it('搜索历史建议 — 无前缀返回最近', () => {
@@ -78,7 +79,7 @@ describe('SearchSuggester', () => {
     ]);
     const suggestions = suggester.suggestFromTags('', 3);
     expect(suggestions.length).toBe(3);
-    expect(suggestions[0].text).toBe('tag:rust');
+    expect(suggestions[0]!.text).toBe('tag:rust');
   });
 
   it('热门标签建议 — 有前缀', () => {
@@ -89,7 +90,7 @@ describe('SearchSuggester', () => {
     ]);
     const suggestions = suggester.suggestFromTags('ru', 3);
     expect(suggestions.length).toBe(1);
-    expect(suggestions[0].text).toBe('tag:rust');
+    expect(suggestions[0]!.text).toBe('tag:rust');
   });
 
   it('合并建议 — 去重', () => {

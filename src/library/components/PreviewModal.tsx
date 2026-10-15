@@ -85,7 +85,13 @@ export function PreviewModal(props: { page: PageRecord; onClose: () => void; onO
             <button onClick={addTag} disabled={!newTag.trim()}>添加</button>
           </div>
         </div>
-        {related.length > 0 && (
+        {relatedLoading && (
+          <div className="modal-related">
+            <h3>相关文章</h3>
+            <p className="related-loading">加载中…</p>
+          </div>
+        )}
+        {!relatedLoading && related.length > 0 && (
           <div className="modal-related">
             <h3>相关文章</h3>
             <ul>

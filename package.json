@@ -1,6 +1,6 @@
 {
   "name": "readtrail",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "private": true,
   "description": "🔍ReadTrail · 读过即存，一搜即回 — 自动记录读过的网页，本地检索，随时找回。",
   "type": "module",
@@ -27,6 +27,7 @@
     "@typescript-eslint/parser": "^8.0.0",
     "esbuild": "^0.21.5",
     "eslint": "^9.0.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^30.1.2",
     "playwright": "^1.64.0",

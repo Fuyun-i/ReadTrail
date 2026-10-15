@@ -29,11 +29,23 @@ export class BackupService {
   ) {}
 
   async exportJson(options: ExportOptions = {}): Promise<Blob> {
-    let records: PageRecord[];
+    // 分页加载记录，避免一次性全量载入内存导致 SW OOM
+    const records: PageRecord[] = [];
     if (options.pageIds) {
-      records = await this.pages.getByIds(options.pageIds);
+      records.push(...await this.pages.getByIds(options.pageIds));
     } else {
-      records = await this.pages.list({ from: options.from, to: options.to, limit: Number.MAX_SAFE_INTEGER });
+      const PAGE_SIZE = 500;
+      let offset = 0;
+      while (true) {
+        const batch = await this.pages.list({
+          from: options.from, to: options.to,
+          offset, limit: PAGE_SIZE, sort: 'recent',
+        });
+        if (batch.length === 0) break;
+        records.push(...batch);
+        if (batch.length < PAGE_SIZE) break;
+        offset += PAGE_SIZE;
+      }
     }
 
     const payload: BackupPayload = {
@@ -43,8 +55,6 @@ export class BackupService {
       pages: records,
     };
     if (options.includeVisits) {
-      // 优化：单次 getAll 获取全部 visits，在内存中按 pageId 分组，
-      // 替代原来对每个 page 单独查询的 N+1 模式
       const allVisits = await this.visits.listAll();
       const pageIdSet = new Set(records.map((r) => r.id));
       payload.visits = allVisits.filter((v) => v.pageId && pageIdSet.has(v.pageId));
@@ -53,15 +63,20 @@ export class BackupService {
   }
 
   async importJson(file: Blob, options: ImportOptions = {}): Promise<ImportReport> {
-    const report: ImportReport = { inserted: 0, updated: 0, skipped: 0, errors: [] };
-
     let parsed: unknown;
     try {
       parsed = JSON.parse(await file.text());
     } catch {
+      const report: ImportReport = { inserted: 0, updated: 0, skipped: 0, errors: [] };
       report.errors.push({ index: -1, message: '文件不是合法 JSON' });
       return report;
     }
+    return this.processImport(parsed, options);
+  }
+
+  /** 导入处理核心逻辑（被 importJson 和 importData 共用） */
+  private async processImport(parsed: unknown, options: ImportOptions = {}): Promise<ImportReport> {
+    const report: ImportReport = { inserted: 0, updated: 0, skipped: 0, errors: [] };
 
     const payload = parsed as Partial<BackupPayload>;
     // 兼容旧版 yuehou-backup 格式名
@@ -163,10 +178,31 @@ export class BackupService {
     return report;
   }
 
+  /**
+   * 直接从已解析的数据对象导入，跳过 Blob 序列化/反序列化开销。
+   * importJson 的内部逻辑提取到此方法。
+   */
+  async importData(data: unknown, options: ImportOptions = {}): Promise<ImportReport> {
+    return this.processImport(data, options);
+  }
+
   async exportMarkdown(pageIds?: string[]): Promise<Blob> {
-    const records = pageIds
-      ? await this.pages.getByIds(pageIds)
-      : await this.pages.list({ limit: Number.MAX_SAFE_INTEGER });
+    // 分页加载记录，避免一次性全量载入内存
+    let records: PageRecord[];
+    if (pageIds) {
+      records = await this.pages.getByIds(pageIds);
+    } else {
+      records = [];
+      const PAGE_SIZE = 500;
+      let offset = 0;
+      while (true) {
+        const batch = await this.pages.list({ offset, limit: PAGE_SIZE, sort: 'recent' });
+        if (batch.length === 0) break;
+        records.push(...batch);
+        if (batch.length < PAGE_SIZE) break;
+        offset += PAGE_SIZE;
+      }
+    }
 
     const lines: string[] = [`# ReadTrail 导出（${new Date().toLocaleString()}）`, ''];
     for (const record of records) {
@@ -208,7 +244,7 @@ export function validatePageRecord(raw: unknown): PageRecord {
     ['readingDurationMs', 0],
     ['maxScrollRatio', 0],
   ];
-  for (const [field, fallback] of numFields) {
+  for (const [field] of numFields) {
     const value = r[field];
     if (value !== undefined && (!Number.isFinite(value) || (value as number) < 0)) {
       throw new Error(`字段 ${field} 必须是非负有限数字`);

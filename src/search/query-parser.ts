@@ -84,7 +84,7 @@ export class QueryParser {
 
     // OR 分组：检测 "word1 OR word2" 模式
     const orGroups: string[][] = [];
-    const orPattern = /(\S+)\s+(?:OR|或|||)\s+(\S+)/gi;
+    const orPattern = /(\S+)\s+(?:OR|或|\|)\s+(\S+)/gi;
     text = text.replace(orPattern, (_m, left: string, right: string) => {
       orGroups.push([left.toLowerCase(), right.toLowerCase()]);
       return ' ';

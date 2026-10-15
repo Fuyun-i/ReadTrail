@@ -20,8 +20,8 @@ describe('SearchHistoryRepository', () => {
     await repo.add('rust async');
     const result = await repo.getAll();
     expect(result.length).toBe(1);
-    expect(result[0].query).toBe('rust async');
-    expect(result[0].timestamp).toBeGreaterThan(0);
+    expect(result[0]!.query).toBe('rust async');
+    expect(result[0]!.timestamp).toBeGreaterThan(0);
   });
 
   it('add 去重 — 相同搜索词移到最前', async () => {
@@ -30,8 +30,8 @@ describe('SearchHistoryRepository', () => {
     await repo.add('rust'); // 重复
     const result = await repo.getAll();
     expect(result.length).toBe(2);
-    expect(result[0].query).toBe('rust');
-    expect(result[1].query).toBe('go');
+    expect(result[0]!.query).toBe('rust');
+    expect(result[1]!.query).toBe('go');
   });
 
   it('add 最多保留 20 条', async () => {
@@ -40,7 +40,7 @@ describe('SearchHistoryRepository', () => {
     }
     const result = await repo.getAll();
     expect(result.length).toBe(20);
-    expect(result[0].query).toBe('query-24');
+    expect(result[0]!.query).toBe('query-24');
   });
 
   it('add 空字符串不添加', async () => {

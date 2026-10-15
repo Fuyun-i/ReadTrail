@@ -156,8 +156,7 @@ export class FlexSearchProvider implements SearchProvider {
     const excludeTermSet = new Set<string>(input.excludeTerms ?? []);
     // 精确短语列表
     const phraseList = input.phrases ?? [];
-    // OR 分组：将每组词也加入搜索
-    const orGroups = input.orGroups ?? [];
+    // OR 分组：input.orGroups 已由 QueryParser 解析，当前版本退化为普通 token 匹配
 
     // 各字段召回（flexsearch 内部以空格分词，索引写入时已预处理为 token 串）
     const fieldHits = new Map<string, { score: number; fields: Set<SearchMatchField> }>();

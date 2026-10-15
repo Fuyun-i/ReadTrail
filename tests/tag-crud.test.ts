@@ -14,6 +14,7 @@ function makePage(overrides: Partial<PageRecord> = {}): PageRecord {
     text: 'This is a test article with sufficient content for testing purposes.',
     excerpt: 'This is a test article',
     source: 'auto',
+    status: 'captured',
     visitCount: 1,
     firstVisitedAt: now,
     lastVisitedAt: now,

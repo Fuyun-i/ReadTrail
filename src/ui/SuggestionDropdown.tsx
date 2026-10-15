@@ -1,5 +1,5 @@
 // 搜索建议下拉列表
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import type { Suggestion } from '../search/search-suggester';
 
 export function SuggestionDropdown(props: {
