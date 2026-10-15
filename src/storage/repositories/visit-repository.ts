@@ -6,10 +6,8 @@ import {
   dbGetAll,
   dbGetAllByIndex,
   dbPut,
-  dbDelete,
   dbClear,
   dbCountByIndex,
-  transactionDone,
   DB_NAME,
   DB_VERSION,
 } from '../db';

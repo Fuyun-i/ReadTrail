@@ -15,6 +15,7 @@ import { MessageRouter } from './message-router';
 import { BackupService } from './backup-service';
 import { IndexRecovery, rebuildFromDatabase } from './index-recovery';
 import { RetentionCleaner } from './retention-cleaner';
+import { validateCaptureCandidate } from './message-validation';
 import { SearchHistoryRepository } from '../storage/repositories/search-history-repository';
 
 // ---- 辅助函数 ----
@@ -28,27 +29,13 @@ function normalizeDomain(domain: string): string {
   return domain.trim().toLowerCase().replace(/^www\./, '');
 }
 
-/** 安全的 Blob → base64 编码，避免 String.fromCharCode spread 栈溢出 */
-async function blobToBase64(blob: Blob): Promise<string> {
-  const buffer = await blob.arrayBuffer();
-  const bytes = new Uint8Array(buffer);
-  const chunkSize = 0x8000; // 32KB per chunk
-  let binary = '';
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
-    // 使用 apply 而非 spread，避免大数组的栈溢出
-    binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
-  }
-  return btoa(binary);
-}
-
 /** 通过 chrome.downloads API 直接下载 Blob，不走消息通道，不受消息体大小限制 */
 async function downloadBlob(blob: Blob, filename: string): Promise<void> {
   const url = URL.createObjectURL(blob);
   const downloadId = await chrome.downloads.download({ url, filename, saveAs: true });
   // 下载完成后释放 blob URL，避免内存泄漏
   const listener = (delta: chrome.downloads.DownloadDelta) => {
-    if (delta.id === downloadId && delta.state?.current === 'complete') {
+    if (delta.id === downloadId && (delta.state?.current === 'complete' || delta.state?.current === 'interrupted')) {
       URL.revokeObjectURL(url);
       chrome.downloads.onChanged.removeListener(listener);
     }
@@ -162,10 +149,13 @@ chrome.runtime.onInstalled.addListener(() => {
   // 安装/更新时请求持久化存储（顶层也已调用，这里确保 onInstalled 时也触发）
   navigator.storage?.persist?.();
 
-  chrome.contextMenus.create({
-    id: MENU_SAVE_ID,
-    title: 'ReadTrail：立即保存此页',
-    contexts: ['page'],
+  // 先清除旧菜单，避免扩展更新时重复创建同 ID 菜单
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({
+      id: MENU_SAVE_ID,
+      title: 'ReadTrail：立即保存此页',
+      contexts: ['page'],
+    });
   });
 });
 
@@ -233,9 +223,15 @@ async function handleRuntimeMessage(
     }
     case 'CAPTURE_CANDIDATE': {
       // 内容脚本在阅读达到阈值后自动提交的候选
+      // 使用 validateCaptureCandidate 做完整校验（text 2MB 上限、数值范围等）
       const payload = msg.payload as Record<string, unknown> | undefined;
-      if (!payload || typeof payload.url !== 'string' || typeof payload.text !== 'string') {
+      if (!payload) {
         return { ok: false, error: { code: 'INVALID_MESSAGE', message: '采集候选载荷不完整' } };
+      }
+      try {
+        validateCaptureCandidate(payload);
+      } catch (e) {
+        return { ok: false, error: { code: 'INVALID_MESSAGE', message: e instanceof Error ? e.message : String(e) } };
       }
       const candidate: CaptureCandidate = {
         url: payload.url as string,
@@ -331,8 +327,8 @@ async function handleWorkerMessage(message: WorkerMessage): Promise<unknown> {
       return { downloaded: true };
     }
     case 'IMPORT_JSON': {
-      const blob = new Blob([JSON.stringify(message.payload.data)], { type: 'application/json' });
-      return backupService.importJson(blob, message.payload.options);
+      // 直接传 parsed data，跳过 Blob 序列化/反序列化开销
+      return backupService.importData(message.payload.data, message.payload.options);
     }
     case 'CLEAR_ALL': {
       await pageRepo.deleteAll();
@@ -348,10 +344,14 @@ async function handleWorkerMessage(message: WorkerMessage): Promise<unknown> {
         const batch = await pageRepo.list({ to: before, sort: 'recent', limit: 500 });
         if (batch.length === 0) break;
         for (const page of batch) {
-          await pageRepo.deleteById(page.id);
-          await visitRepo.deleteByPageId(page.id);
-          await searchProvider.remove(page.id);
-          cleared++;
+          try {
+            await pageRepo.deleteById(page.id);
+            await visitRepo.deleteByPageId(page.id);
+            await searchProvider.remove(page.id);
+            cleared++;
+          } catch {
+            // 单条删除失败跳过，不中断整个清理操作
+          }
         }
         if (batch.length < 500) break;
       }

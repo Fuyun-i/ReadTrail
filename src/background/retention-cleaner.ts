@@ -38,6 +38,8 @@ export class RetentionCleaner {
 
     const cutoff = this.now() - retentionDays * 86_400_000;
     let totalDeleted = 0;
+    let consecutiveFailures = 0;
+    const MAX_CONSECUTIVE_FAILURES = 3;
 
     // 分批加载过期记录并逐批删除，避免一次性全量加载到内存。
     // 不使用 offset：删除后记录不再出现在 to: cutoff 的查询结果中，
@@ -50,6 +52,7 @@ export class RetentionCleaner {
       });
       if (batch.length === 0) break;
 
+      let deletedThisBatch = 0;
       for (const page of batch) {
         // 页面 → visits → 索引 顺序删除；单条失败跳过并继续，不阻塞其他清理
         try {
@@ -57,9 +60,18 @@ export class RetentionCleaner {
           await this.visits.deleteByPageId(page.id);
           await this.search.remove(page.id);
           totalDeleted++;
+          deletedThisBatch++;
         } catch {
           // 保留该条待下次清理重试
         }
+      }
+
+      // 连续多批全部删除失败（如磁盘配额满、IDB 只读）→ 放弃，避免无限循环
+      if (deletedThisBatch === 0) {
+        consecutiveFailures++;
+        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) break;
+      } else {
+        consecutiveFailures = 0;
       }
 
       // 不足一批说明已到末尾

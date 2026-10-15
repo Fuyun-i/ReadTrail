@@ -270,17 +270,29 @@ export class PageRepository {
     return records.slice(offset, offset + limit);
   }
 
-  /** 获取所有标签及其使用计数 */
+  /** 获取所有标签及其使用计数（走 tags 多值索引游标，不全量加载记录） */
   async listAllTags(): Promise<Array<{ tag: string; count: number }>> {
-    const records = await this.list({ limit: Number.MAX_SAFE_INTEGER });
+    const db = await this.dbPromise;
+    const tx = db.transaction('pages', 'readonly');
+    const index = tx.objectStore('pages').index('tags');
     const tagMap = new Map<string, number>();
-    for (const record of records) {
-      if (record.tags) {
-        for (const tag of record.tags) {
+
+    await new Promise<void>((resolve, reject) => {
+      // openKeyCursor 只遍历索引键（标签字符串），不加载完整记录，内存开销极小
+      const cursorReq = index.openKeyCursor();
+      cursorReq.onsuccess = () => {
+        const cursor = cursorReq.result;
+        if (cursor) {
+          const tag = cursor.key as string;
           tagMap.set(tag, (tagMap.get(tag) ?? 0) + 1);
+          cursor.continue();
+        } else {
+          resolve();
         }
-      }
-    }
+      };
+      cursorReq.onerror = () => reject(cursorReq.error ?? new Error('tags index cursor error'));
+    });
+
     return Array.from(tagMap.entries())
       .map(([tag, count]) => ({ tag, count }))
       .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
