@@ -45,7 +45,7 @@ export function applyMigrations(db: IDBDatabase, oldVersion: number, newVersion:
         upgradeToV3(tx);
         break;
       default:
-        break;
+        throw new Error(`Unknown database version ${v}, cannot migrate from ${oldVersion} to ${newVersion}`);
     }
   }
 }

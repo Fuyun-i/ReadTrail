@@ -47,9 +47,9 @@ export function SettingsTab(props: {
     try {
       const { settings: updated } = await api.updateSettings({
         enabled,
-        minReadingDurationMs: minSeconds * 1000,
-        minScrollRatio: minScroll / 100,
-        minTextLength,
+        minReadingDurationMs: Number.isFinite(minSeconds) ? minSeconds * 1000 : 10_000,
+        minScrollRatio: Number.isFinite(minScroll) ? minScroll / 100 : 0.25,
+        minTextLength: Number.isFinite(minTextLength) ? minTextLength : 300,
         // H-3: retentionDays=0 表示永久保留，提交 undefined 而非 0
         retentionDays: retentionDays && retentionDays > 0 ? retentionDays : undefined,
         searchResultLimit,

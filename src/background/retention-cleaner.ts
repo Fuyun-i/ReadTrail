@@ -56,8 +56,10 @@ export class RetentionCleaner {
       for (const page of batch) {
         // 页面 → visits → 索引 顺序删除；单条失败跳过并继续，不阻塞其他清理
         try {
-          await this.pages.deleteById(page.id);
+          // M20: 先删子记录(visits)，再删父记录(page)，最后删索引
+          // 这样失败中途不会产生孤儿子记录
           await this.visits.deleteByPageId(page.id);
+          await this.pages.deleteById(page.id);
           await this.search.remove(page.id);
           totalDeleted++;
           deletedThisBatch++;

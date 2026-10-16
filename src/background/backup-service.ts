@@ -55,10 +55,19 @@ export class BackupService {
       pages: records,
     };
     if (options.includeVisits) {
-      // 按已导出的 pageId 过滤 visits，避免全量序列化
+      // H5: 分页加载访问记录，避免全量载入内存导致 SW OOM
       const pageIdSet = new Set(records.map((r) => r.id));
-      const allVisits = await this.visits.listAll();
-      payload.visits = allVisits.filter((v) => v.pageId && pageIdSet.has(v.pageId));
+      const allVisits: VisitRecord[] = [];
+      const VISIT_PAGE_SIZE = 500;
+      let visitOffset = 0;
+      while (true) {
+        const batch = await this.visits.listPaged(VISIT_PAGE_SIZE, visitOffset);
+        if (batch.length === 0) break;
+        allVisits.push(...batch.filter((v) => v.pageId && pageIdSet.has(v.pageId)));
+        if (batch.length < VISIT_PAGE_SIZE) break;
+        visitOffset += VISIT_PAGE_SIZE;
+      }
+      payload.visits = allVisits;
     }
     return new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   }
@@ -86,21 +95,27 @@ export class BackupService {
       report.errors.push({ index: -1, message: '备份格式不正确（缺少 format 或 pages）' });
       return report;
     }
+    // M19: 检查备份版本兼容性
+    if (payload.version !== undefined && payload.version > BACKUP_FORMAT_VERSION) {
+      report.errors.push({ index: -1, message: `备份版本 v${payload.version} 高于当前支持版本 v${BACKUP_FORMAT_VERSION}，请升级扩展` });
+      return report;
+    }
 
     // replace：先验证所有记录，再清理（避免损坏的备份导致永久数据丢失）
     let dataReplaced = false;
     if (options.mode === 'replace') {
-      // 预验证：至少检查第一条记录的结构合法性
-      if (payload.pages.length > 0) {
+      // H3: 预验证所有记录，任一失败则中止导入，不触碰现有数据
+      for (let i = 0; i < payload.pages.length; i++) {
         try {
-          validatePageRecord(payload.pages[0]);
-        } catch {
-          report.errors.push({ index: -1, message: '备份文件首条记录校验失败，已中止替换导入' });
+          validatePageRecord(payload.pages[i]);
+        } catch (err) {
+          report.errors.push({ index: i, message: `替换导入预校验失败: ${err instanceof Error ? err.message : String(err)}` });
           return report;
         }
       }
-      await this.pages.deleteAll();
+      // H4: 先删 visits（孤儿 visit 比 orphan page 更安全），再删 pages
       await this.visits.deleteAll();
+      await this.pages.deleteAll();
       await this.search.clear();
       dataReplaced = true;
     }
@@ -125,6 +140,12 @@ export class BackupService {
         if (existing && mergeMode) {
           // merge：同 URL 已存在 → 保留本地统计，仅当备份内容更新时更新正文/标题
           const contentChanged = existing.text !== record.text || existing.title !== record.title;
+          // M16: 合并标签（并集，去重）
+          const mergedTags = [...new Set([
+            ...(existing.tags ?? []),
+            ...(record.tags ?? []),
+          ])];
+          const tagsChanged = mergedTags.length !== (existing.tags?.length ?? 0);
           const merged: PageRecord = {
             ...existing,
             title: contentChanged ? record.title : existing.title,
@@ -134,10 +155,14 @@ export class BackupService {
             readingDurationMs: Math.max(existing.readingDurationMs, record.readingDurationMs),
             maxScrollRatio: Math.max(existing.maxScrollRatio, record.maxScrollRatio),
             visitCount: Math.max(existing.visitCount, record.visitCount), // 不累加
-            updatedAt: contentChanged ? Date.now() : existing.updatedAt,
+            tags: mergedTags.length > 0 ? mergedTags : existing.tags,
+            updatedAt: (contentChanged || tagsChanged) ? Date.now() : existing.updatedAt,
           };
           await this.pages.overwrite(merged); // 直接覆盖，避免 upsert 的 +1 兜底重复计数
-          await this.search.update(merged);
+          // L5: 仅在内容或标签变更时更新搜索索引
+          if (contentChanged || tagsChanged) {
+            await this.search.update(merged);
+          }
           report.updated++;
         } else {
           await this.pages.upsert(record);
@@ -221,16 +246,17 @@ export class BackupService {
       }
     }
 
+    const escapeMd = (s: string) => s.replace(/([#\\`*_{}\[\]()!~|-])/g, '\\$1');
     const lines: string[] = [`# ReadTrail 导出（${new Date().toLocaleString()}）`, ''];
     for (const record of records) {
-      lines.push(`## ${record.title}`);
+      lines.push(`## ${escapeMd(record.title)}`);
       lines.push('');
       lines.push(`- 链接: ${record.url}`);
       lines.push(`- 域名: ${record.domain}`);
       lines.push(`- 最近访问: ${new Date(record.lastVisitedAt).toLocaleString()}`);
       lines.push(`- 访问次数: ${record.visitCount}`);
       if (record.excerpt) {
-        lines.push('', `> ${record.excerpt}`);
+        lines.push('', `> ${escapeMd(record.excerpt)}`);
       }
       lines.push('', record.text, '');
     }
@@ -290,10 +316,10 @@ export function validatePageRecord(raw: unknown): PageRecord {
     lastVisitedAt: typeof r.lastVisitedAt === 'number' ? (r.lastVisitedAt as number) : now,
     visitCount: typeof r.visitCount === 'number' ? (r.visitCount as number) : 1,
     readingDurationMs: typeof r.readingDurationMs === 'number' ? (r.readingDurationMs as number) : 0,
-    maxScrollRatio: typeof r.maxScrollRatio === 'number' ? (r.maxScrollRatio as number) : 0,
+    maxScrollRatio: typeof r.maxScrollRatio === 'number' && r.maxScrollRatio >= 0 && r.maxScrollRatio <= 1 ? (r.maxScrollRatio as number) : 0,
     source: r.source === 'manual' ? 'manual' : 'auto',
     status: 'captured',
-    tags: Array.isArray(r.tags) ? (r.tags as string[]).filter((t) => typeof t === 'string').map((t) => t.toLowerCase()) : undefined,
+    tags: Array.isArray(r.tags) ? (r.tags as string[]).filter((t) => typeof t === 'string').map((t) => t.trim().toLowerCase()).filter((t) => t.length > 0) : undefined,
     createdAt: typeof r.createdAt === 'number' ? (r.createdAt as number) : now,
     updatedAt: typeof r.updatedAt === 'number' ? (r.updatedAt as number) : now,
   };
@@ -326,7 +352,7 @@ function validateVisitRecord(raw: unknown): VisitRecord {
     startedAt,
     endedAt: endedAt,
     durationMs: typeof r.durationMs === 'number' && (r.durationMs as number) >= 0 ? (r.durationMs as number) : 0,
-    maxScrollRatio: typeof r.maxScrollRatio === 'number' ? (r.maxScrollRatio as number) : 0,
+    maxScrollRatio: typeof r.maxScrollRatio === 'number' && r.maxScrollRatio >= 0 && r.maxScrollRatio <= 1 ? (r.maxScrollRatio as number) : 0,
     foregroundMs: typeof r.foregroundMs === 'number' && (r.foregroundMs as number) >= 0 ? (r.foregroundMs as number) : 0,
   };
 }

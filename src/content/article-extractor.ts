@@ -40,6 +40,10 @@ export async function extractArticle(): Promise<ExtractedArticle> {
   const Ctor = await getReadability();
   if (Ctor) {
     try {
+      // H8: 超大 DOM 跳过 cloneNode，避免内存爆炸
+      if (document.documentElement.outerHTML.length > 5_000_000) {
+        throw new Error('DOM too large for cloneNode');
+      }
       const docClone = document.cloneNode(true) as Document;
       const reader = new Ctor(docClone);
       const parsed = reader.parse();
@@ -50,7 +54,7 @@ export async function extractArticle(): Promise<ExtractedArticle> {
             url,
             title: parsed.title || document.title,
             text,
-            excerpt: parsed.excerpt || makeExcerpt(text),
+            excerpt: parsed.excerpt ? parsed.excerpt.slice(0, 500) : makeExcerpt(text),
             author: parsed.byline || undefined,
             publishedAt: parseDate(parsed.publishedTime),
             wordCount: text.length,
@@ -84,8 +88,13 @@ export async function extractArticle(): Promise<ExtractedArticle> {
     }
   }
 
-  // 3. 可见文本降级（L-3: 使用 innerText 获取可见文本，避免 cloneNode(true) 的开销）
-  const text = cleanText(document.body.innerText ?? document.body.textContent ?? '');
+  // 3. 可见文本降级
+  // M30: 优先用 textContent（不触发重排），仅在结果过短时回退到 innerText
+  let rawText = document.body.textContent ?? '';
+  if (rawText.trim().length < MIN_TEXT_LENGTH) {
+    rawText = document.body.innerText ?? rawText;
+  }
+  const text = cleanText(rawText);
 
   return {
     url,

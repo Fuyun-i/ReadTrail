@@ -201,6 +201,19 @@ const VALIDATORS: Record<string, PayloadValidator | undefined> = {
     optionalStringArray(obj, 'tags', 100, 50);
   },
   GET_RELATED: (p) => { requireString(requireObject(p), 'pageId', MAX_PAGE_ID_LENGTH); },
+  MANUAL_CAPTURE_REQUEST: (p) => {
+    const obj = requireObject(p);
+    requireString(obj, 'url', MAX_URL_LENGTH);
+    requireString(obj, 'text', MAX_TEXT_LENGTH);
+    if (obj.title !== undefined && typeof obj.title === 'string' && obj.title.length > 1_000) {
+      throw new AppError('INVALID_MESSAGE', '字段 title 超过长度上限');
+    }
+    if (obj.excerpt !== undefined && typeof obj.excerpt !== 'string') {
+      throw new AppError('INVALID_MESSAGE', '字段 excerpt 必须是字符串');
+    }
+  },
+  READING_PROGRESS: () => {},
+  TRIGGER_MANUAL_CAPTURE: () => {},
 };
 
 /** 消息入口统一调用：未知类型在 MessageRouter 已处理；这里校验 payload */
@@ -209,13 +222,10 @@ export function validateMessagePayload(message: WorkerMessage): void {
   if (!validator) return; // 未知类型交给 router
   if (!('payload' in message) || message.payload === undefined) {
     // 允许缺省 payload 的消息类型
-    if (['SEARCH', 'GET_PAGE', 'DELETE_PAGE', 'UPDATE_SETTINGS', 'IMPORT_JSON', 'CLEAR_BEFORE'].includes(message.type)) {
+    if (['SEARCH', 'GET_PAGE', 'DELETE_PAGE', 'UPDATE_SETTINGS', 'IMPORT_JSON', 'CLEAR_BEFORE', 'CAPTURE_CANDIDATE', 'MANUAL_CAPTURE_REQUEST'].includes(message.type)) {
       throw new AppError('INVALID_MESSAGE', `消息 ${message.type} 缺少 payload`);
     }
     return;
   }
   validator((message as { payload: unknown }).payload);
 }
-
-// OPEN_LIBRARY 的 payload 可选，手动放宽 requiresResponse 之外的处理
-VALIDATORS.OPEN_LIBRARY = VALIDATORS.OPEN_LIBRARY ?? (() => {});

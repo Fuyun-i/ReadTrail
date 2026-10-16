@@ -40,7 +40,7 @@ export class SearchHistoryRepository {
     const existing = await new Promise<MetaRecord | undefined>((resolve, reject) => {
       const req = store.get(META_KEY);
       req.onsuccess = () => resolve(req.result as MetaRecord | undefined);
-      req.onerror = () => reject(req.error);
+      req.onerror = () => reject(req.error ?? new Error('search history get failed'));
     });
 
     const current = existing?.value ?? [];

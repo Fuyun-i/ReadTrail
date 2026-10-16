@@ -13,7 +13,7 @@ export class SearchSuggester {
   private searchHistory: string[] = [];
   private popularTags: Array<{ tag: string; count: number }> = [];
 
-  /** 从页面记录中提取标题/域名前缀匹配建议 */
+  /** 从页面记录中提取标题/域名子串匹配建议 */
   suggestFromPages(pages: PageRecord[], prefix: string, max = 5): Suggestion[] {
     if (!prefix || prefix.length < 1) return [];
     const lower = prefix.toLowerCase();
@@ -23,7 +23,7 @@ export class SearchSuggester {
     for (const page of pages) {
       if (results.length >= max) break;
 
-      // 标题前缀匹配
+      // 标题子串匹配
       if (page.title) {
         const titleLower = page.title.toLowerCase();
         if (titleLower.includes(lower) && !seen.has(page.title)) {
@@ -32,8 +32,8 @@ export class SearchSuggester {
         }
       }
 
-      // 域名前缀匹配
-      if (page.domain.includes(lower) && !seen.has(page.domain)) {
+      // 域名子串匹配
+      if (page.domain.toLowerCase().includes(lower) && !seen.has(page.domain)) {
         seen.add(page.domain);
         results.push({ text: page.domain, type: 'domain', label: '域名' });
       }
@@ -70,7 +70,7 @@ export class SearchSuggester {
     }
     const lower = prefix.toLowerCase();
     return this.popularTags
-      .filter(({ tag }) => tag.includes(lower))
+      .filter(({ tag }) => tag.toLowerCase().includes(lower))
       .slice(0, max)
       .map(({ tag }) => ({ text: `tag:${tag}`, type: 'tag' as const, label: '标签' }));
   }
