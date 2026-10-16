@@ -17,13 +17,17 @@ export const DEFAULT_SETTINGS: UserSettings = {
 
 const SETTINGS_KEY = 'app';
 
-/** 合并设置：跳过 undefined 值，避免覆盖默认值 */
+/** 合并设置：跳过 undefined 值，避免覆盖默认值；逐字段类型校验防止损坏值传播 */
 function mergeSettings(base: UserSettings, patch: Partial<UserSettings>): UserSettings {
   const result = { ...base };
   for (const [key, value] of Object.entries(patch)) {
-    if (value !== undefined) {
-      (result as Record<string, unknown>)[key] = value;
-    }
+    if (value === undefined) continue;
+    // M25: 逐字段类型校验，损坏值回退到默认值
+    const defaultValue = (base as Record<string, unknown>)[key];
+    if (typeof defaultValue === 'boolean' && typeof value !== 'boolean') continue;
+    if (typeof defaultValue === 'number' && typeof value !== 'number') continue;
+    if (Array.isArray(defaultValue) && !Array.isArray(value)) continue;
+    (result as Record<string, unknown>)[key] = value;
   }
   return result;
 }
@@ -45,7 +49,16 @@ export class SettingsRepository {
   }
 
   async update(patch: Partial<UserSettings>): Promise<UserSettings> {
-    const current = await this.get();
+    const db = await this.dbPromise;
+    // H2: 使用单个 readwrite 事务避免 TOCTOU 竞态
+    const tx = db.transaction('settings', 'readwrite');
+    const store = tx.objectStore('settings');
+    const req = store.get(SETTINGS_KEY);
+    const stored = await new Promise<{ id: string; settings: UserSettings } | undefined>((resolve, reject) => {
+      req.onsuccess = () => resolve(req.result as { id: string; settings: UserSettings } | undefined);
+      req.onerror = () => reject(req.error ?? new Error('settings get failed'));
+    });
+    const current = stored ? mergeSettings(DEFAULT_SETTINGS, stored.settings) : { ...DEFAULT_SETTINGS };
     const next: UserSettings = { ...current, ...patch };
     const validation = this.validate(next);
     if (!validation.valid) {
@@ -53,8 +66,12 @@ export class SettingsRepository {
       error.name = 'SETTINGS_INVALID';
       throw error;
     }
-    const db = await this.dbPromise;
-    await dbPut(db, 'settings', { id: SETTINGS_KEY, settings: next });
+    store.put({ id: SETTINGS_KEY, settings: next });
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error('settings tx failed'));
+      tx.onabort = () => reject(tx.error ?? new Error('settings tx aborted'));
+    });
     this.cache = next;
     return next;
   }

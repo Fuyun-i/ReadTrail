@@ -152,6 +152,40 @@ export async function dbGetBatch<T>(db: IDBDatabase, store: StoreName, keys: IDB
 }
 
 /**
+ * 分页读取：使用游标跳过 offset 条，取 limit 条。
+ * 避免全量 getAll 到内存再切片。
+ */
+export async function dbGetPaged<T>(
+  db: IDBDatabase,
+  store: StoreName,
+  limit: number,
+  offset: number,
+): Promise<T[]> {
+  const tx = db.transaction(store, 'readonly');
+  const objectStore = tx.objectStore(store);
+  return new Promise<T[]>((resolve, reject) => {
+    const results: T[] = [];
+    let skipped = 0;
+    const cursorReq = objectStore.openCursor();
+    cursorReq.onsuccess = () => {
+      const cursor = cursorReq.result;
+      if (!cursor || results.length >= limit) {
+        resolve(results);
+        return;
+      }
+      if (skipped < offset) {
+        skipped++;
+        cursor.advance(Math.max(1, offset - skipped + 1));
+        return;
+      }
+      results.push(cursor.value as T);
+      cursor.continue();
+    };
+    cursorReq.onerror = () => reject(cursorReq.error ?? new Error('dbGetPaged cursor failed'));
+  });
+}
+
+/**
  * 按索引范围计数（不加载记录数据，只计数）。
  */
 export async function dbCountByIndex(

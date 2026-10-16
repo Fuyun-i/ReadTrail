@@ -3,10 +3,10 @@
 
 import type { ParsedQuery } from './types';
 
-const TIME_PHRASES: Array<{ pattern: RegExp; days: number; bounded?: boolean }> = [
+const TIME_PHRASES: Array<{ pattern: RegExp; days: number; bounded?: boolean; today?: boolean }> = [
   { pattern: /上周|上星期|last week/i, days: 7 },
   { pattern: /昨天|yesterday/i, days: 1, bounded: true },
-  { pattern: /今天|today/i, days: 1 },
+  { pattern: /今天|today/i, days: 0, bounded: true, today: true },
   { pattern: /上月|上个月|last month/i, days: 30 },
   { pattern: /最近三天|最近3天|last 3 days/i, days: 3 },
   { pattern: /最近一周|最近7天|last 7 days/i, days: 7 },
@@ -29,7 +29,8 @@ const RELATIVE_PATTERNS: Array<{ pattern: RegExp; unitMs: number }> = [
 
 export class QueryParser {
   async parse(input: string, now: number = Date.now()): Promise<ParsedQuery> {
-    let text = input;
+    // M6: 查询长度限制，防止超长查询导致性能问题
+    let text = input.length > 2000 ? input.slice(0, 2000) : input;
     let from: number | undefined;
     let to: number | undefined;
     const domains: string[] = [];
@@ -38,14 +39,16 @@ export class QueryParser {
     const excludeTerms: string[] = [];
 
     // domain:example.com 过滤语法（可多次）
-    text = text.replace(/(?:domain|站点|网站)[:：](\S+)/gi, (_m, domain: string) => {
-      domains.push(domain.toLowerCase());
+    // L6: 域名只取到 | 或下一个过滤语法前，避免 domain:a|tag:b 把 |tag:b 也当域名
+    // L19: 域名只取到 / | 或空格前，不捕获路径
+    text = text.replace(/(?:domain|站点|网站)[:：]([^\s|/]+)/gi, (_m, domain: string) => {
+      if (domain) domains.push(domain.toLowerCase());
       return '';
     });
 
     // tag:rust 过滤语法（可多次）
-    text = text.replace(/tag[:：](\S+)/gi, (_m, tag: string) => {
-      tags.push(tag.toLowerCase());
+    text = text.replace(/tag[:：]([^\s|]+)/gi, (_m, tag: string) => {
+      if (tag) tags.push(tag.toLowerCase());
       return '';
     });
 
@@ -56,15 +59,21 @@ export class QueryParser {
     });
 
     // 时间短语
-    for (const { pattern, days, bounded } of TIME_PHRASES) {
+    for (const { pattern, days, bounded, today } of TIME_PHRASES) {
       if (pattern.test(text)) {
         if (bounded) {
-          // 昨天：from = 昨天零点, to = 今天零点（只返回昨天的记录）
           const dayStart = new Date(now);
           dayStart.setHours(0, 0, 0, 0);
           const startOfToday = dayStart.getTime();
-          from = startOfToday - days * 86_400_000;
-          to = startOfToday;
+          if (today) {
+            // 今天：from = 今天零点, to = now
+            from = startOfToday;
+            to = now;
+          } else {
+            // 昨天：from = 昨天零点, to = 今天零点
+            from = startOfToday - days * 86_400_000;
+            to = startOfToday;
+          }
         } else {
           from = now - days * 86_400_000;
         }
@@ -85,22 +94,21 @@ export class QueryParser {
       }
     }
 
-    // NOT 排除：-word
-    text = text.replace(/(?:^|\s)-(\S+)/g, (_m, word: string) => {
+    // NOT 排除：-word（L20: --word 不视为 NOT，避免 --flag 被误排除）
+    text = text.replace(/(?:^|\s)-([^\s-][^\s]*)/g, (_m, word: string) => {
       excludeTerms.push(word.toLowerCase());
       return ' ';
     });
 
     // OR 分组：检测 "word1 OR word2 OR word3" 模式
-    // 解析后保留 OR 词在 text 中作为普通 token 参与搜索（当前版本退化为 token 匹配）
+    // 当前版本退化为普通 token 匹配（AND 语义），但移除 OR 关键词避免其作为搜索 token 泄漏
     const orGroups: string[][] = [];
-    // 按 OR 分隔符切分文本，提取连续的 OR 组
     const orDelimiter = /\s+(?:OR|或|\|)\s+/i;
     const tokens = text.split(orDelimiter);
     if (tokens.length >= 2) {
-      // 所有 token 构成一个 OR 组
       orGroups.push(tokens.map((t) => t.trim().toLowerCase()).filter(Boolean));
-      // 保留 OR 词在 text 中作为普通 token 参与搜索
+      // 用空格重新连接 tokens（移除 OR/或/| 关键词），保留实际搜索词
+      text = tokens.join(' ');
     }
 
     text = text.replace(/\s+/g, ' ').trim();
@@ -114,7 +122,7 @@ export class QueryParser {
       phrases: phrases.length ? phrases : undefined,
       excludeTerms: excludeTerms.length ? excludeTerms : undefined,
       orGroups: orGroups.length ? orGroups : undefined,
-      confidence: 0,
+      confidence: text ? 1 : 0,
     };
   }
 }

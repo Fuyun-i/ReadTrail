@@ -60,25 +60,39 @@ export class PageRepository {
   /** 新增或更新（以 canonicalUrl 去重）。已有记录时保留 firstVisitedAt / createdAt。 */
   async upsert(record: PageRecord): Promise<PageRecord> {
     const db = await this.dbPromise;
-    const existing = await dbGetByIndex<PageRecord>(db, 'pages', 'canonicalUrl', record.canonicalUrl);
+    // H1: 使用单个 readwrite 事务避免 TOCTOU 竞态
+    const tx = db.transaction('pages', 'readwrite');
+    const store = tx.objectStore('pages');
+    const req = store.index('canonicalUrl').get(record.canonicalUrl);
+    const existing = await new Promise<PageRecord | undefined>((resolve, reject) => {
+      req.onsuccess = () => resolve(req.result as PageRecord | undefined);
+      req.onerror = () => reject(req.error ?? new Error('upsert get failed'));
+    });
+    let result: PageRecord;
     if (existing) {
       const merged: PageRecord = {
         ...record,
         id: existing.id,
         firstVisitedAt: existing.firstVisitedAt,
         createdAt: existing.createdAt,
-        // 调用方（协调器）已经做了 +1；这里取较大值兜底，避免导入等路径重复计数
         visitCount: Math.max(record.visitCount, existing.visitCount + 1),
         readingDurationMs: Math.max(record.readingDurationMs, existing.readingDurationMs),
         maxScrollRatio: Math.max(record.maxScrollRatio, existing.maxScrollRatio),
         updatedAt: Date.now(),
         tags: record.tags ?? existing.tags,
       };
-      await dbPut(db, 'pages', merged);
-      return merged;
+      store.put(merged);
+      result = merged;
+    } else {
+      store.put(record);
+      result = record;
     }
-    await dbPut(db, 'pages', record);
-    return record;
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error('upsert tx failed'));
+      tx.onabort = () => reject(tx.error ?? new Error('upsert tx aborted'));
+    });
+    return result;
   }
 
   /** 直接按 id 覆盖写入，不做 canonicalUrl 合并和计数兜底（导入等已算好统计的场景使用） */
@@ -214,24 +228,45 @@ export class PageRepository {
 
   /** 为指定页面添加标签（去重，幂等） */
   async addTag(pageId: string, tag: string): Promise<PageRecord | undefined> {
-    const record = await this.findById(pageId);
+    const db = await this.dbPromise;
+    // H6: 使用单个 readwrite 事务避免 TOCTOU 竞态
+    const tx = db.transaction('pages', 'readwrite');
+    const store = tx.objectStore('pages');
+    const req = store.get(pageId);
+    const record = await new Promise<PageRecord | undefined>((resolve, reject) => {
+      req.onsuccess = () => resolve(req.result as PageRecord | undefined);
+      req.onerror = () => reject(req.error ?? new Error('addTag get failed'));
+    });
     if (!record) return undefined;
     const normalized = tag.trim().toLowerCase();
     if (!normalized) return record;
     const tags = record.tags ?? [];
-    if (tags.includes(normalized)) return record; // 幂等：已存在则不重复添加
+    if (tags.includes(normalized)) return record;
     const updated: PageRecord = {
       ...record,
       tags: [...tags, normalized],
       updatedAt: Date.now(),
     };
-    await this.overwrite(updated);
+    store.put(updated);
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error('addTag tx failed'));
+      tx.onabort = () => reject(tx.error ?? new Error('addTag tx aborted'));
+    });
     return updated;
   }
 
   /** 从指定页面移除标签 */
   async removeTag(pageId: string, tag: string): Promise<PageRecord | undefined> {
-    const record = await this.findById(pageId);
+    const db = await this.dbPromise;
+    // H6: 使用单个 readwrite 事务避免 TOCTOU 竞态
+    const tx = db.transaction('pages', 'readwrite');
+    const store = tx.objectStore('pages');
+    const req = store.get(pageId);
+    const record = await new Promise<PageRecord | undefined>((resolve, reject) => {
+      req.onsuccess = () => resolve(req.result as PageRecord | undefined);
+      req.onerror = () => reject(req.error ?? new Error('removeTag get failed'));
+    });
     if (!record) return undefined;
     if (!record.tags || record.tags.length === 0) return record;
     const normalized = tag.trim().toLowerCase();
@@ -240,7 +275,12 @@ export class PageRepository {
       tags: record.tags.filter((t) => t !== normalized),
       updatedAt: Date.now(),
     };
-    await this.overwrite(updated);
+    store.put(updated);
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error('removeTag tx failed'));
+      tx.onabort = () => reject(tx.error ?? new Error('removeTag tx aborted'));
+    });
     return updated;
   }
 

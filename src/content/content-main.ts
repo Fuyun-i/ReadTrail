@@ -110,9 +110,11 @@ function init(): void {
   });
 
   // 页面即将卸载：立即结算一次（关闭标签页前已提交）
+  // M29: pagehide 不等待 async，用同步快照 + fire-and-forget
   window.addEventListener('pagehide', () => {
     const snapshot = observer.getSnapshot();
     reportReadingProgress(snapshot);
+    // pagehide 中 async 可能被中断，但仍尝试提交（比完全不提交好）
     void maybeCapture(snapshot);
   });
 

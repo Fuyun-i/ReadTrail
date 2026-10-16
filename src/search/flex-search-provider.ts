@@ -174,7 +174,7 @@ export class FlexSearchProvider implements SearchProvider {
       for (const [field, idx] of Object.entries(this.indexes) as Array<[FieldName, FlexIndex]>) {
         let ids: string[] | number[];
         try {
-          ids = idx.search(query, { limit: searchLimit });
+          ids = idx.search(queryTokens.join(' '), { limit: searchLimit });
         } catch {
           ids = [];
         }
@@ -215,24 +215,27 @@ export class FlexSearchProvider implements SearchProvider {
       if (input.to !== undefined && page.lastVisitedAt > input.to) continue;
       if (input.domain && !matchesAnyDomain(page.domain, input.domain)) continue;
       if (input.source && page.source !== input.source) continue;
-      if (input.tags && input.tags.length > 0 && (!page.tags || !input.tags.some((t) => page.tags!.includes(t)))) continue;
-      // NOT 排除：页面文本包含排除词则跳过
-      if (excludeTermSet.size > 0) {
-        const pageText = (page.title + ' ' + page.excerpt + ' ' + page.text.slice(0, 5000)).toLowerCase();
-        let excluded = false;
-        for (const term of excludeTermSet) {
-          if (pageText.includes(term)) { excluded = true; break; }
+      if (input.tags && input.tags.length > 0 && (!page.tags || !input.tags.some((t) => page.tags!.some((pt) => pt.toLowerCase() === t)))) continue;
+      // L17: 合并 NOT 排除和短语匹配的 pageText 计算，避免重复
+      const needsTextCheck = excludeTermSet.size > 0 || phraseList.length > 0;
+      if (needsTextCheck) {
+        const pageText = (page.title + ' ' + page.excerpt + ' ' + page.text.slice(0, 20000)).toLowerCase();
+        // NOT 排除：页面文本包含排除词则跳过
+        if (excludeTermSet.size > 0) {
+          let excluded = false;
+          for (const term of excludeTermSet) {
+            if (pageText.includes(term)) { excluded = true; break; }
+          }
+          if (excluded) continue;
         }
-        if (excluded) continue;
-      }
-      // 精确短语：页面必须包含所有短语
-      if (phraseList.length > 0) {
-        const pageText = (page.title + ' ' + page.excerpt + ' ' + page.text.slice(0, 5000)).toLowerCase();
-        let allMatch = true;
-        for (const phrase of phraseList) {
-          if (!pageText.includes(phrase.toLowerCase())) { allMatch = false; break; }
+        // 精确短语：页面必须包含所有短语
+        if (phraseList.length > 0) {
+          let allMatch = true;
+          for (const phrase of phraseList) {
+            if (!pageText.includes(phrase.toLowerCase())) { allMatch = false; break; }
+          }
+          if (!allMatch) continue;
         }
-        if (!allMatch) continue;
       }
 
       const highlights = buildHighlights(page, queryTokens);
@@ -241,16 +244,24 @@ export class FlexSearchProvider implements SearchProvider {
       const score = hit.score + recencyBoost * 2 + frequencyBoost;
 
       results.push({
-        page,
+        page: { ...page, excerpt: page.excerpt.length > 200 ? page.excerpt.slice(0, 200) + '…' : page.excerpt },
         score,
         matchedFields: [...hit.fields],
         highlights,
       });
     }
 
+    // M7: 去重（同一页面 ID 可能被多个 token 命中）
+    const seenIds = new Set<string>();
+    const dedupedResults = results.filter((r) => {
+      if (seenIds.has(r.page.id)) return false;
+      seenIds.add(r.page.id);
+      return true;
+    });
+
     // 排序
     const sort = input.sort ?? 'relevance';
-    results.sort((a, b) => {
+    dedupedResults.sort((a, b) => {
       if (sort === 'recent') return b.page.lastVisitedAt - a.page.lastVisitedAt;
       if (sort === 'frequent') {
         return b.page.visitCount - a.page.visitCount || b.page.lastVisitedAt - a.page.lastVisitedAt;
@@ -258,7 +269,7 @@ export class FlexSearchProvider implements SearchProvider {
       return b.score - a.score;
     });
 
-    return results.slice(offset, offset + limit);
+    return dedupedResults.slice(offset, offset + limit);
   }
 
   async health(databaseCount: number): Promise<SearchHealth> {
@@ -300,10 +311,26 @@ export class FlexSearchProvider implements SearchProvider {
       domain: input.domain,
     });
 
-    // 仅过滤 source（SW 侧不支持 source 过滤）
+    // 过滤 source、标签、精确短语、NOT 排除词（SW 侧不支持这些过滤）
     const filtered = pages
       .filter((p) => {
         if (input.source && p.source !== input.source) return false;
+        // H9: 标签过滤（大小写不敏感）
+        if (input.tags && input.tags.length > 0 && (!p.tags || !input.tags.some((t) => p.tags!.some((pt) => pt.toLowerCase() === t)))) return false;
+        // H10: 精确短语过滤
+        if (input.phrases && input.phrases.length > 0) {
+          const pageText = (p.title + ' ' + p.excerpt + ' ' + p.text.slice(0, 20_000)).toLowerCase();
+          for (const phrase of input.phrases) {
+            if (!pageText.includes(phrase.toLowerCase())) return false;
+          }
+        }
+        // M3: NOT 排除词过滤
+        if (input.excludeTerms && input.excludeTerms.length > 0) {
+          const pageText = (p.title + ' ' + p.excerpt + ' ' + p.text.slice(0, 20_000)).toLowerCase();
+          for (const term of input.excludeTerms) {
+            if (pageText.includes(term)) return false;
+          }
+        }
         return true;
       })
       .slice(offset, offset + limit);
@@ -328,7 +355,8 @@ function matchesAnyDomain(recordDomain: string, filterDomain: string): boolean {
 function matchesDomain(recordDomain: string, filterDomain: string): boolean {
   const f = filterDomain.trim().toLowerCase();
   if (!f) return true;
-  return recordDomain === f || recordDomain.endsWith('.' + f);
+  const rd = recordDomain.toLowerCase();
+  return rd === f || rd.endsWith('.' + f);
 }
 
 /** 最近访问时间加分：24h 内 1.0 → 线性衰减到 30 天为 0 */
@@ -356,7 +384,11 @@ function buildHighlights(page: PageRecord, queryTokens: string[], maxHighlights 
       if (token.length < 1) continue;
       const pos = lower.indexOf(token.toLowerCase());
       if (pos >= 0) {
-        highlights.push({ field: name, text, start: pos, end: pos + token.length });
+        // L21: 使用 Array.from 避免 Unicode 代理对截断
+        const chars = Array.from(text);
+        const tokenChars = Array.from(token);
+        const safeEnd = Math.min(pos + tokenChars.length, chars.length);
+        highlights.push({ field: name, text: chars.slice(pos, safeEnd).join(''), start: pos, end: safeEnd });
         break;
       }
     }

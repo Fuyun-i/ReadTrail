@@ -10,7 +10,7 @@ import { validateMessagePayload } from './message-validation';
 export type MessageHandler<T = unknown> = (message: WorkerMessage) => Promise<T>;
 
 const MAX_PAYLOAD_JSON_LENGTH = 2_000_000; // 消息体大小上限
-// IMPORT_JSON 携带完整备份文件内容，跳过 payload 大小检查（消息通道本身有限制）
+const MAX_IMPORT_JSON_LENGTH = 64 * 1024 * 1024; // IMPORT_JSON 携带完整备份，放宽到 64MB
 
 export class MessageRouter {
   private handlers = new Map<string, MessageHandler>();
@@ -37,11 +37,12 @@ export class MessageRouter {
     }
     const requestId = asRequestId(msg.requestId);
 
-    // payload 大小限制（IMPORT_JSON 携带完整备份，放宽到 64MB）
-    if (msg.payload !== undefined && msg.type !== 'IMPORT_JSON') {
+    // payload 大小限制
+    if (msg.payload !== undefined) {
       try {
         const json = JSON.stringify(msg.payload);
-        if (json.length > MAX_PAYLOAD_JSON_LENGTH) {
+        const limit = msg.type === 'IMPORT_JSON' ? MAX_IMPORT_JSON_LENGTH : MAX_PAYLOAD_JSON_LENGTH;
+        if (json.length > limit) {
           return errorResponse(requestId, 'INVALID_MESSAGE', '消息体超过大小限制');
         }
       } catch {

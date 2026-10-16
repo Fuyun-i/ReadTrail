@@ -5,6 +5,7 @@ import {
   openDatabase,
   dbGetAll,
   dbGetAllByIndex,
+  dbGetPaged,
   dbPut,
   dbClear,
   dbCountByIndex,
@@ -28,6 +29,10 @@ export class VisitRepository {
   }
 
   async create(record: VisitRecord): Promise<void> {
+    // M26: 基本字段校验，防止损坏数据写入
+    if (!record.id || !record.pageId || typeof record.startedAt !== 'number') {
+      throw new Error('Invalid VisitRecord: missing required fields');
+    }
     const db = await this.dbPromise;
     await dbPut(db, 'visits', record);
   }
@@ -42,6 +47,12 @@ export class VisitRepository {
   async listAll(): Promise<VisitRecord[]> {
     const db = await this.dbPromise;
     return dbGetAll<VisitRecord>(db, 'visits');
+  }
+
+  /** 分页加载访问记录（避免全量载入内存导致 SW OOM） */
+  async listPaged(limit: number, offset: number): Promise<VisitRecord[]> {
+    const db = await this.dbPromise;
+    return dbGetPaged<VisitRecord>(db, 'visits', limit, offset);
   }
 
   /** 按 pageId 计数（使用索引 count，不加载记录数据） */
@@ -86,12 +97,12 @@ export class VisitRepository {
       pageIds.map(
         (pageId) =>
           new Promise<void>((resolve, reject) => {
-            const req = index.getAll(pageId) as IDBRequest<VisitRecord[]>;
+            const req = index.getAllKeys(pageId) as IDBRequest<IDBValidKey[]>;
             req.onsuccess = () => {
-              for (const v of req.result) result.add(v.id);
+              for (const key of req.result) result.add(String(key));
               resolve();
             };
-            req.onerror = () => reject(req.error ?? new Error('getAll failed'));
+            req.onerror = () => reject(req.error ?? new Error('getAllKeys failed'));
           }),
       ),
     );

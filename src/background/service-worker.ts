@@ -17,6 +17,8 @@ import { IndexRecovery, rebuildFromDatabase } from './index-recovery';
 import { RetentionCleaner } from './retention-cleaner';
 import { validateCaptureCandidate } from './message-validation';
 import { SearchHistoryRepository } from '../storage/repositories/search-history-repository';
+import { openDatabase, DB_NAME, DB_VERSION } from '../storage/db';
+import { applyMigrations } from '../storage/migrations';
 
 // ---- 辅助函数 ----
 
@@ -110,10 +112,12 @@ async function normalizeSearchInput(raw: SearchInput): Promise<SearchInput> {
 }
 
 // ---- 单例装配（SW 重启后从 IndexedDB 恢复，不依赖内存状态之外的任何东西）----
-const pageRepo = new PageRepository();
-const visitRepo = new VisitRepository();
-const settingsRepo = new SettingsRepository();
-const searchHistoryRepo = new SearchHistoryRepository();
+// M24: 共享单个 DB 连接，避免每个 Repository 各开一个连接浪费资源
+const sharedDbPromise = openDatabase(DB_NAME, DB_VERSION, applyMigrations);
+const pageRepo = new PageRepository(await sharedDbPromise);
+const visitRepo = new VisitRepository(await sharedDbPromise);
+const settingsRepo = new SettingsRepository(await sharedDbPromise);
+const searchHistoryRepo = new SearchHistoryRepository(await sharedDbPromise);
 const queryParser = new QueryParser();
 const searchProvider = new FlexSearchProvider(async (ids: string[], listOptions) => {
   if (ids.length === 0) {

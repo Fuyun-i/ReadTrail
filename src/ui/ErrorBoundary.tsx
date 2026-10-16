@@ -16,8 +16,9 @@ interface State {
 export class ErrorBoundary extends Component<Props, State> {
   state: State = { hasError: false, message: '', retryCount: 0 };
 
-  static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, message: error.message || String(error), retryCount: 0 };
+  static getDerivedStateFromError(error: Error): Partial<State> {
+    // M13: 不重置 retryCount，否则重试后再报错会无限重试
+    return { hasError: true, message: error.message || String(error) };
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo): void {

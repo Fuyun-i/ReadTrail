@@ -42,7 +42,7 @@ const SENSITIVE_HOST_FRAGMENT_PATTERNS = [
 /** 登录 / 账户 / 管理后台：按路径关键词匹配 */
 const SENSITIVE_PATH_FRAGMENTS = [
   '/login', '/signin', '/sign-in', '/signup', '/register',
-  '/oauth', '/sso/', '/passport', '/wp-login', '/wp-admin',
+  '/oauth', '/sso', '/passport', '/wp-login', '/wp-admin',
   '/dashboard', '/admin',
 ];
 
@@ -73,7 +73,7 @@ export function isSensitiveUrl(url: string): { sensitive: boolean; matchedRule?:
   const path = parsed.pathname.toLowerCase();
   for (const fragment of SENSITIVE_PATH_FRAGMENTS) {
     // 精确路径段匹配：path === fragment 或以 fragment + / 开头，避免 /administrator 误命中 /admin
-    if (path === fragment || path.startsWith(fragment + '/')) {
+    if (path === fragment || path.startsWith(fragment + '/') || path.startsWith(fragment + '.')) {
       return { sensitive: true, matchedRule: fragment };
     }
   }
@@ -96,12 +96,14 @@ export function canonicalizeUrl(rawUrl: string): string {
 
   url.hash = '';
 
-  const TRACKING_PARAM_PREFIXES = ['utm_', 'spm', 'fbclid', 'gclid', 'msclkid', 'yclid', '_ga', 'ref=', 'ref_src'];
+  // 前缀匹配（带下划线/分隔符，误匹配风险低）
+  const TRACKING_PARAM_PREFIXES = ['utm_'];
+  // 精确匹配（短名前缀匹配会误删 spmabc / _gat 等非跟踪参数）
+  const TRACKING_PARAM_EXACT = new Set(['spm', 'fbclid', 'gclid', 'msclkid', 'yclid', '_ga', 'ref', 'ref_src']);
   const removed: string[] = [];
   url.searchParams.forEach((_value, key) => {
     const lower = key.toLowerCase();
-    // `ref=` 带等号，避免误删 reference / refresh 等正常参数
-    if (TRACKING_PARAM_PREFIXES.some((p) => (p.endsWith('=') ? lower === p.slice(0, -1) : lower.startsWith(p)))) {
+    if (TRACKING_PARAM_EXACT.has(lower) || TRACKING_PARAM_PREFIXES.some((p) => lower.startsWith(p))) {
       removed.push(key);
     }
   });
