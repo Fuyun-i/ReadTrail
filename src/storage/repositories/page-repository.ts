@@ -36,7 +36,7 @@ function matchesAnyDomain(recordDomain: string, filterDomain: string): boolean {
   return filterDomain.split('|').some((f) => {
     const target = f.trim().toLowerCase();
     if (!target) return true;
-    return d === target || d.endsWith('.' + target) || target.endsWith('.' + d);
+    return d === target || d.endsWith('.' + target);
   });
 }
 
@@ -298,18 +298,6 @@ export class PageRepository {
       .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
   }
 
-  /**
-   * 列出用于索引重建的记录（截断 text 字段以减少内存占用）。
-   * 索引只用 text.slice(0, 20_000)，无需加载完整正文（最高 500KB/条）。
-   */
-  async listForIndex(maxTextLength: number = 20_000): Promise<PageRecord[]> {
-    const records = await this.list({ sort: 'recent', limit: Number.MAX_SAFE_INTEGER });
-    // 截断 text 字段，保留其他字段不变
-    return records.map((r) => ({
-      ...r,
-      text: r.text.length > maxTextLength ? r.text.slice(0, maxTextLength) : r.text,
-    }));
-  }
 }
 
 export { AppError };

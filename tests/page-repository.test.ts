@@ -217,16 +217,4 @@ describe('PageRepository', () => {
     expect(await pages.getByIds([])).toEqual([]);
   });
 
-  it('(12) listForIndex 截断 text', async () => {
-    const longText = 'x'.repeat(50_000);
-    await pages.upsert(makePage('p1', { text: longText }));
-    await pages.upsert(makePage('p2', { text: 'short' }));
-
-    const records = await pages.listForIndex(20_000);
-    expect(records.length).toBe(2);
-    const p1 = records.find((r) => r.id === 'p1')!;
-    const p2 = records.find((r) => r.id === 'p2')!;
-    expect(p1.text.length).toBe(20_000);
-    expect(p2.text).toBe('short');
-  });
 });

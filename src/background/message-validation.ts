@@ -80,11 +80,7 @@ export function validateCaptureCandidate(payload: unknown): CaptureCandidate {
   }
   requireNumber(obj, 'readingDurationMs', 0, 24 * 3600 * 1000);
   requireNumber(obj, 'maxScrollRatio', 0, 1);
-  requireNumber(obj, 'tabId', 0, Number.MAX_SAFE_INTEGER);
-  requireNumber(obj, 'windowId', 0, Number.MAX_SAFE_INTEGER);
-  if (typeof obj.isIncognito !== 'boolean') {
-    throw new AppError('INVALID_MESSAGE', '字段 isIncognito 必须是布尔值');
-  }
+  // tabId/windowId/isIncognito 由 Service Worker 从 sender.tab 派生，不由客户端提供
   optionalEnum(obj, 'source', ['auto', 'manual'] as const);
   return obj as unknown as CaptureCandidate;
 }
@@ -204,6 +200,7 @@ const VALIDATORS: Record<string, PayloadValidator | undefined> = {
     requireString(obj, 'pageId', MAX_PAGE_ID_LENGTH);
     optionalStringArray(obj, 'tags', 100, 50);
   },
+  GET_RELATED: (p) => { requireString(requireObject(p), 'pageId', MAX_PAGE_ID_LENGTH); },
 };
 
 /** 消息入口统一调用：未知类型在 MessageRouter 已处理；这里校验 payload */

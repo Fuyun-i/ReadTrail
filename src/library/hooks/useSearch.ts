@@ -83,9 +83,14 @@ export function useSearch() {
     setPages((prev) => prev.filter((p) => p.id !== pageId));
   }, []);
 
-  // 域名筛选 debounce 自动搜索
+  // 域名筛选 debounce 自动搜索（跳过首次挂载，避免与 App.tsx 的初始搜索重复）
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debounceSkipRef = useRef(true);
   useEffect(() => {
+    if (debounceSkipRef.current) {
+      debounceSkipRef.current = false;
+      return;
+    }
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       void runSearch();

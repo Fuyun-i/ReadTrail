@@ -80,7 +80,11 @@ export class FlexSearchProvider implements SearchProvider {
   }
   async update(record: PageRecord): Promise<void> {
     await this.remove(record.id);
-    await this.index(record);
+    try {
+      await this.index(record);
+    } catch {
+      this.markNeedsRebuild();
+    }
   }
 
   async remove(pageId: string): Promise<void> {
@@ -286,8 +290,9 @@ export class FlexSearchProvider implements SearchProvider {
   private async emptyQueryResults(input: SearchInput, offset: number, limit: number): Promise<SearchResult[]> {
     // 优化：不再调 fetchPages([]) 拉全量数据，而是传入 limit/offset/sort 让 SW 侧走索引查询
     // domain 传给 SW 侧过滤（已支持管道分隔 OR 匹配），客户端不再重复过滤
+    // 过取 3 倍以应对 source 过滤后数量不足
     const pages = await this.fetchPages([], {
-      limit: offset + limit,
+      limit: (offset + limit) * 3,
       offset: 0,
       sort: 'recent',
       from: input.from,
@@ -323,7 +328,7 @@ function matchesAnyDomain(recordDomain: string, filterDomain: string): boolean {
 function matchesDomain(recordDomain: string, filterDomain: string): boolean {
   const f = filterDomain.trim().toLowerCase();
   if (!f) return true;
-  return recordDomain === f || recordDomain.endsWith('.' + f) || f.endsWith('.' + recordDomain);
+  return recordDomain === f || recordDomain.endsWith('.' + f);
 }
 
 /** 最近访问时间加分：24h 内 1.0 → 线性衰减到 30 天为 0 */

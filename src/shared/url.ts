@@ -3,12 +3,17 @@
 /** 浏览器内部协议页面：不注入、不保存 */
 const BROWSER_PROTOCOLS = new Set(['chrome:', 'edge:', 'about:', 'chrome-extension:', 'moz-extension:']);
 
-/** 扩展商店等已知敏感 host 片段 */
-const STORE_HOST_PATTERNS = [
+/** 扩展商店等已知敏感 host（纯域名） */
+const STORE_HOSTS = new Set([
   'chromewebstore.google.com',
-  'chrome.google.com/webstore',
-  'microsoftedge.microsoft.com/addons',
+  'chrome.google.com',
   'microsoftedge.microsoft.com',
+]);
+
+/** 扩展商店等已知敏感 host + path 前缀 */
+const STORE_HOST_PATHS: Array<{ host: string; path: string }> = [
+  { host: 'chrome.google.com', path: '/webstore' },
+  { host: 'microsoftedge.microsoft.com', path: '/addons' },
 ];
 
 /**
@@ -28,8 +33,11 @@ const SENSITIVE_HOSTS = new Set([
   'mail.qq.com', 'mail.163.com', 'mail.126.com', 'mail.sina.com.cn',
 ]);
 
-/** host 片段匹配：命中即敏感（如所有 *.bank.* 域） */
-const SENSITIVE_HOST_FRAGMENTS = ['bank.', 'ebank.', 'banking.', '.bank.'];
+/** host 片段正则匹配：命中即敏感（如所有 *.bank.* / *.ebank.* 域）
+ *  使用标签边界正则避免误判（foodbank / databank 等不会命中） */
+const SENSITIVE_HOST_FRAGMENT_PATTERNS = [
+  /^bank\./i, /\.bank\./i, /^ebank\./i, /\.ebank\./i, /^banking\./i, /\.banking\./i,
+];
 
 /** 登录 / 账户 / 管理后台：按路径关键词匹配 */
 const SENSITIVE_PATH_FRAGMENTS = [
@@ -56,15 +64,16 @@ export function isSensitiveUrl(url: string): { sensitive: boolean; matchedRule?:
   if (SENSITIVE_HOSTS.has(host) || SENSITIVE_HOSTS.has(registrable)) {
     return { sensitive: true, matchedRule: host };
   }
-  // host 片段：如 news.bank.example.com / my.ebank.cn
-  for (const fragment of SENSITIVE_HOST_FRAGMENTS) {
-    if (host.includes(fragment) || host.startsWith(fragment)) {
-      return { sensitive: true, matchedRule: fragment };
+  // host 片段：如 news.bank.example.com / my.ebank.cn（标签边界匹配，避免 foodbank 等误判）
+  for (const pattern of SENSITIVE_HOST_FRAGMENT_PATTERNS) {
+    if (pattern.test(host)) {
+      return { sensitive: true, matchedRule: pattern.source };
     }
   }
   const path = parsed.pathname.toLowerCase();
   for (const fragment of SENSITIVE_PATH_FRAGMENTS) {
-    if (path.includes(fragment)) {
+    // 精确路径段匹配：path === fragment 或以 fragment + / 开头，避免 /administrator 误命中 /admin
+    if (path === fragment || path.startsWith(fragment + '/')) {
       return { sensitive: true, matchedRule: fragment };
     }
   }
@@ -115,8 +124,13 @@ export function isBrowserPage(url: string): boolean {
     return true;
   }
   if (BROWSER_PROTOCOLS.has(parsed.protocol)) return true;
-  const host = parsed.host.toLowerCase();
-  return STORE_HOST_PATTERNS.some((pattern) => host === pattern || host.endsWith('.' + pattern) || parsed.href.includes(pattern));
+  const host = parsed.hostname.toLowerCase();
+  // 纯域名匹配（含子域）
+  if (STORE_HOSTS.has(host) || [...STORE_HOSTS].some((h) => host.endsWith('.' + h))) return true;
+  // 域名 + 路径前缀匹配
+  return STORE_HOST_PATHS.some(({ host: h, path }) =>
+    (host === h || host.endsWith('.' + h)) && parsed.pathname.startsWith(path),
+  );
 }
 
 export function extractDomain(url: string): string {

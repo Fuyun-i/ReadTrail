@@ -32,6 +32,20 @@ export function toErrorInfo(err: unknown): {
     return { code: err.code, message: err.message, details: err.details };
   }
   if (err instanceof Error) {
+    // 按错误名称做粗分类
+    const name = err.name.toLowerCase();
+    if (name.includes('network') || name.includes('fetch')) {
+      return { code: 'DATABASE_ERROR', message: err.message };
+    }
+    if (name.includes('extract')) {
+      return { code: 'EXTRACTION_ERROR', message: err.message };
+    }
+    if (name.includes('index')) {
+      return { code: 'INDEX_ERROR', message: err.message };
+    }
+    if (name.includes('settings')) {
+      return { code: 'SETTINGS_INVALID', message: err.message };
+    }
     return { code: 'DATABASE_ERROR', message: err.message };
   }
   return { code: 'DATABASE_ERROR', message: String(err) };

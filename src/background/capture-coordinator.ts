@@ -102,7 +102,7 @@ export class CaptureCoordinator {
       visitCount: (existing?.visitCount ?? 0) + 1,
       readingDurationMs: Math.max(existing?.readingDurationMs ?? 0, candidate.readingDurationMs),
       maxScrollRatio: Math.max(existing?.maxScrollRatio ?? 0, candidate.maxScrollRatio),
-      source: candidate.source,
+      source: existing?.source ?? candidate.source,
       status: 'captured',
       createdAt: existing?.createdAt ?? now,
       updatedAt: isContentChanged ? now : (existing?.updatedAt ?? now),

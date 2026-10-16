@@ -10,7 +10,7 @@ export function SettingsTab(props: {
   onRebuilt: (n: number) => void;
   onExported: (name: string) => void;
   onImported: (r: ImportReport) => void;
-  onCleared: (deletedCount: number) => void;
+  onCleared: (deletedCount: number) => void; // -1 = all cleared, 0+ = count
   onError: (msg: string) => void;
 }) {
   const { settings, health } = props;
@@ -112,7 +112,7 @@ export function SettingsTab(props: {
     try {
       if (clearRange === 'all') {
         await api.clearAll();
-        props.onCleared(0);
+        props.onCleared(-1);
       } else {
         const now = Date.now();
         const ms: Record<string, number> = { '1h': 3600_000, '24h': 86400_000, '7d': 604800_000, '4m': 10368000_000 };

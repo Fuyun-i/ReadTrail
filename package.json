@@ -1,6 +1,6 @@
 {
   "name": "readtrail",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "private": true,
   "description": "🔍ReadTrail · 读过即存，一搜即回 — 自动记录读过的网页，本地检索，随时找回。",
   "type": "module",

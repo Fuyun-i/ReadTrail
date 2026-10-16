@@ -41,6 +41,8 @@ async function downloadBlob(blob: Blob, filename: string): Promise<void> {
     }
   };
   chrome.downloads.onChanged.addListener(listener);
+  // 兜底：5 分钟后强制释放（SW 可能在下载完成前被终止）
+  setTimeout(() => { URL.revokeObjectURL(url); chrome.downloads.onChanged.removeListener(listener); }, 300_000);
 }
 
 // ---- 搜索输入归一化（development-plan 3.2 / 3.3）----
@@ -51,7 +53,7 @@ async function downloadBlob(blob: Blob, filename: string): Promise<void> {
 
 async function normalizeSearchInput(raw: SearchInput): Promise<SearchInput> {
   const settings = await settingsRepo.get();
-  const cap = settings.searchResultLimit;
+  const cap = settings.searchResultLimit ?? 30;
   const offset = clampInt(raw.offset, 0, Number.MAX_SAFE_INTEGER, 0);
 
   // QueryParser：解析失败退回原始查询
@@ -174,7 +176,8 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 // 扩展页 WorkerMessage（带 requestId）共用 onMessage；按 requestId 区分。
 chrome.runtime.onMessage.addListener((raw, sender, sendResponse) => {
   handleAnyMessage(raw, sender).then(sendResponse).catch((err) => {
-    sendResponse({ requestId: '', ok: false, error: { code: 'DATABASE_ERROR', message: String(err) } });
+    const requestId = typeof raw === 'object' && raw !== null ? ((raw as Record<string, unknown>).requestId as string) ?? '' : '';
+    sendResponse({ requestId, ok: false, error: { code: 'DATABASE_ERROR', message: String(err) } });
   });
   return true; // 异步响应
 });
@@ -340,18 +343,28 @@ async function handleWorkerMessage(message: WorkerMessage): Promise<unknown> {
       // 分批删除 lastVisitedAt < before 的页面，同步删 visits 和索引
       const { before } = (message as { payload: { before: number } }).payload;
       let cleared = 0;
+      let consecutiveFailures = 0;
+      const MAX_CONSECUTIVE_FAILURES = 3;
       while (true) {
         const batch = await pageRepo.list({ to: before, sort: 'recent', limit: 500 });
         if (batch.length === 0) break;
+        let deletedThisBatch = 0;
         for (const page of batch) {
           try {
             await pageRepo.deleteById(page.id);
             await visitRepo.deleteByPageId(page.id);
             await searchProvider.remove(page.id);
             cleared++;
+            deletedThisBatch++;
           } catch {
             // 单条删除失败跳过，不中断整个清理操作
           }
+        }
+        if (deletedThisBatch === 0) {
+          consecutiveFailures++;
+          if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) break;
+        } else {
+          consecutiveFailures = 0;
         }
         if (batch.length < 500) break;
       }
@@ -379,7 +392,8 @@ async function handleWorkerMessage(message: WorkerMessage): Promise<unknown> {
       return pageRepo.listAllTags();
     }
     case 'UPDATE_TAGS': {
-      const { pageId, tags } = message.payload;
+      const { pageId, tags: rawTags } = message.payload;
+      const tags = rawTags ?? [];
       const page = await pageRepo.findById(pageId);
       if (!page) throw new AppError('PAGE_NOT_FOUND', `页面不存在: ${pageId}`);
       // 全量替换标签
@@ -396,6 +410,7 @@ async function handleWorkerMessage(message: WorkerMessage): Promise<unknown> {
       return { cleared: true };
     }
     case 'GET_RELATED': {
+      await indexRecovery.ensureRecovered();
       const { pageId } = message.payload;
       const page = await pageRepo.findById(pageId);
       if (!page) return [];
