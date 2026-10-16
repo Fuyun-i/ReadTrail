@@ -31,9 +31,9 @@ export const STORES: Record<StoreName, { keyPath: string; indexes: Array<{ name:
   meta: { keyPath: 'key', indexes: [] },
 };
 
-export function applyMigrations(db: IDBDatabase, oldVersion: number, _newVersion: number, tx?: IDBTransaction): void {
+export function applyMigrations(db: IDBDatabase, oldVersion: number, newVersion: number, tx?: IDBTransaction): void {
   // 每个旧版本依次升级到下一个版本，未来加版本时在 switch 中追加
-  for (let v = oldVersion; v < db.version; v++) {
+  for (let v = oldVersion; v < newVersion; v++) {
     switch (v) {
       case 0:
         createStoreV1(db);

@@ -55,8 +55,9 @@ export class BackupService {
       pages: records,
     };
     if (options.includeVisits) {
-      const allVisits = await this.visits.listAll();
+      // 按已导出的 pageId 过滤 visits，避免全量序列化
       const pageIdSet = new Set(records.map((r) => r.id));
+      const allVisits = await this.visits.listAll();
       payload.visits = allVisits.filter((v) => v.pageId && pageIdSet.has(v.pageId));
     }
     return new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -86,11 +87,22 @@ export class BackupService {
       return report;
     }
 
-    // replace：页面、访问记录、索引全部清理（5.2）
+    // replace：先验证所有记录，再清理（避免损坏的备份导致永久数据丢失）
+    let dataReplaced = false;
     if (options.mode === 'replace') {
+      // 预验证：至少检查第一条记录的结构合法性
+      if (payload.pages.length > 0) {
+        try {
+          validatePageRecord(payload.pages[0]);
+        } catch {
+          report.errors.push({ index: -1, message: '备份文件首条记录校验失败，已中止替换导入' });
+          return report;
+        }
+      }
       await this.pages.deleteAll();
       await this.visits.deleteAll();
       await this.search.clear();
+      dataReplaced = true;
     }
 
     // merge 模式下记录已有 canonicalUrl，判断重复导入（不重复增加 visitCount）
@@ -135,6 +147,11 @@ export class BackupService {
       } catch (err) {
         report.errors.push({ index: i, message: err instanceof Error ? err.message : String(err) });
       }
+    }
+
+    // 如果 replace 模式下有导入错误，标记索引需要重建
+    if (dataReplaced && report.errors.length > 0) {
+      this.search.markNeedsRebuild();
     }
 
     // 导入备份中的 visits（5.2）：校验 pageId 存在、按 ID 幂等
@@ -297,13 +314,17 @@ function validateVisitRecord(raw: unknown): VisitRecord {
   const startedAt = typeof r.startedAt === 'number' && Number.isFinite(r.startedAt) && r.startedAt >= 0
     ? (r.startedAt as number)
     : Date.now();
+  const endedAt = typeof r.endedAt === 'number' && Number.isFinite(r.endedAt) ? (r.endedAt as number) : undefined;
+  if (endedAt !== undefined && endedAt < startedAt) {
+    throw new Error('访问记录 endedAt 不能早于 startedAt');
+  }
   return {
     id: r.id,
     pageId: typeof r.pageId === 'string' ? r.pageId : undefined,
     tabId: typeof r.tabId === 'number' ? (r.tabId as number) : 0,
     url: r.url,
     startedAt,
-    endedAt: typeof r.endedAt === 'number' ? (r.endedAt as number) : undefined,
+    endedAt: endedAt,
     durationMs: typeof r.durationMs === 'number' && (r.durationMs as number) >= 0 ? (r.durationMs as number) : 0,
     maxScrollRatio: typeof r.maxScrollRatio === 'number' ? (r.maxScrollRatio as number) : 0,
     foregroundMs: typeof r.foregroundMs === 'number' && (r.foregroundMs as number) >= 0 ? (r.foregroundMs as number) : 0,

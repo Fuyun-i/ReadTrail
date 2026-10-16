@@ -1,5 +1,5 @@
 // 记录库入口：状态编排，UI 细节在 components/，异步逻辑在 hooks/
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import type { PageRecord, ImportReport } from '../shared/types';
 import { api } from '../ui/api';
 import { useSearch } from './hooks/useSearch';
@@ -24,7 +24,8 @@ function readLaunchParams(): { tab: Tab; query: string } {
 }
 
 export default function App() {
-  const launch = readLaunchParams();
+  const launch = useMemo(() => readLaunchParams(), []);
+  const launchAppliedRef = useRef(false);
   const [tab, setTab] = useState<Tab>(launch.tab);
   const [selected, setSelected] = useState<PageRecord | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -38,11 +39,14 @@ export default function App() {
   const { settings, health, loadSettings, applySaved, applyRebuilt } = useSettings(setError);
 
   useEffect(() => {
-    // 携带查询打开：填充搜索框并直接以该关键词查询（E-013）
-    if (launch.query) {
-      setQuery(launch.query);
-      void searchWith(launch.query);
-      return;
+    // 携带查询打开：仅首次挂载时填充搜索框并查询（E-013），避免 tab 切换时覆盖用户输入
+    if (!launchAppliedRef.current) {
+      launchAppliedRef.current = true;
+      if (launch.query) {
+        setQuery(launch.query);
+        void searchWith(launch.query);
+        return;
+      }
     }
     if (tab === 'search') void runSearch();
     else if (tab === 'history') void loadRecent();
@@ -56,7 +60,7 @@ export default function App() {
   };
 
   const openPage = (url: string) => {
-    window.open(url, '_blank');
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   const removePage = async (pageId: string) => {
@@ -143,7 +147,7 @@ export default function App() {
           onRebuilt={(n) => { applyRebuilt(n); flash(`索引重建完成，共 ${n} 条`, 3000); }}
           onExported={(name) => flash(`已导出 ${name}`)}
           onImported={handleImported}
-          onCleared={(n) => flash(n === 0 ? '所有数据已清空' : `已删除 ${n} 条记录`)}
+          onCleared={(n) => flash(n < 0 ? '所有数据已清空' : `已删除 ${n} 条记录`)}
           onError={setError}
         />
       )}

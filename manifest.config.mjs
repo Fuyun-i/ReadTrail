@@ -1,7 +1,7 @@
 // MV3 manifest 生成模块 —— build 脚本据此写入 dist/manifest.json
 // ReadTrail：右上角扩展入口（搜索小窗口 + 独立记录库），不再替换新标签页
 export const APP_NAME = '🔍ReadTrail · 读过即存，一搜即回';
-export const APP_VERSION = '0.4.3';
+export const APP_VERSION = '0.4.5';
 
 export function buildManifest() {
   return {
@@ -38,6 +38,10 @@ export function buildManifest() {
       '16': 'icons/icon16.png',
       '48': 'icons/icon48.png',
       '128': 'icons/icon128.png',
+    },
+
+    content_security_policy: {
+      extension_pages: "script-src 'self'; object-src 'self'",
     },
   };
 }

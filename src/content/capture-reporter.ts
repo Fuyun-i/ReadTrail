@@ -28,8 +28,8 @@ export async function requestManualCapture(article: ExtractedArticle): Promise<{
 }
 
 /** 监听来自 SW 的触发指令（右键"立即保存此页"） */
-export function onManualCaptureTrigger(handler: () => void): void {
-  chrome.runtime.onMessage.addListener((raw: unknown, _sender, sendResponse) => {
+export function onManualCaptureTrigger(handler: () => void): () => void {
+  const listener = (raw: unknown, _sender: chrome.runtime.MessageSender, sendResponse: (r: unknown) => void) => {
     if (
       typeof raw === 'object' &&
       raw !== null &&
@@ -39,5 +39,7 @@ export function onManualCaptureTrigger(handler: () => void): void {
       sendResponse({ ok: true });
     }
     return false; // 同步处理
-  });
+  };
+  chrome.runtime.onMessage.addListener(listener);
+  return () => chrome.runtime.onMessage.removeListener(listener);
 }

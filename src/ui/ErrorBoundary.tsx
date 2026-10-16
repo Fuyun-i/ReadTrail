@@ -10,13 +10,14 @@ interface Props {
 interface State {
   hasError: boolean;
   message: string;
+  retryCount: number;
 }
 
 export class ErrorBoundary extends Component<Props, State> {
-  state: State = { hasError: false, message: '' };
+  state: State = { hasError: false, message: '', retryCount: 0 };
 
   static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, message: error.message || String(error) };
+    return { hasError: true, message: error.message || String(error), retryCount: 0 };
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo): void {
@@ -25,11 +26,16 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render(): ReactNode {
     if (this.state.hasError) {
+      const maxRetries = 3;
       return this.props.fallback ?? (
         <div style={{ padding: '2rem', textAlign: 'center', color: '#666' }}>
           <h2>出了点问题</h2>
           <p>{this.state.message}</p>
-          <button onClick={() => this.setState({ hasError: false, message: '' })}>重试</button>
+          {this.state.retryCount < maxRetries ? (
+            <button onClick={() => this.setState((s) => ({ hasError: false, message: '', retryCount: s.retryCount + 1 }))}>重试</button>
+          ) : (
+            <button onClick={() => location.reload()}>刷新页面</button>
+          )}
         </div>
       );
     }

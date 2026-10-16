@@ -69,8 +69,8 @@ export interface WorkerResponseMap {
   UPDATE_SETTINGS: { settings: UserSettings; validation: ValidationResult };
   REBUILD_INDEX: { rebuilt: number };
   INDEX_HEALTH: SearchHealth;
-  EXPORT_JSON: { base64: string };
-  EXPORT_MARKDOWN: { base64: string };
+  EXPORT_JSON: { downloaded: boolean };
+  EXPORT_MARKDOWN: { downloaded: boolean };
   IMPORT_JSON: ImportReport;
   CLEAR_ALL: { cleared: boolean };
   CLEAR_BEFORE: { cleared: number };

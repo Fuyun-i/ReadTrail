@@ -3,9 +3,9 @@
 
 import type { ParsedQuery } from './types';
 
-const TIME_PHRASES: Array<{ pattern: RegExp; days: number }> = [
+const TIME_PHRASES: Array<{ pattern: RegExp; days: number; bounded?: boolean }> = [
   { pattern: /上周|上星期|last week/i, days: 7 },
-  { pattern: /昨天|yesterday/i, days: 1 },
+  { pattern: /昨天|yesterday/i, days: 1, bounded: true },
   { pattern: /今天|today/i, days: 1 },
   { pattern: /上月|上个月|last month/i, days: 30 },
   { pattern: /最近三天|最近3天|last 3 days/i, days: 3 },
@@ -56,9 +56,18 @@ export class QueryParser {
     });
 
     // 时间短语
-    for (const { pattern, days } of TIME_PHRASES) {
+    for (const { pattern, days, bounded } of TIME_PHRASES) {
       if (pattern.test(text)) {
-        from = now - days * 86_400_000;
+        if (bounded) {
+          // 昨天：from = 昨天零点, to = 今天零点（只返回昨天的记录）
+          const dayStart = new Date(now);
+          dayStart.setHours(0, 0, 0, 0);
+          const startOfToday = dayStart.getTime();
+          from = startOfToday - days * 86_400_000;
+          to = startOfToday;
+        } else {
+          from = now - days * 86_400_000;
+        }
         text = text.replace(pattern, ' ');
         break;
       }
@@ -82,13 +91,17 @@ export class QueryParser {
       return ' ';
     });
 
-    // OR 分组：检测 "word1 OR word2" 模式
+    // OR 分组：检测 "word1 OR word2 OR word3" 模式
+    // 解析后保留 OR 词在 text 中作为普通 token 参与搜索（当前版本退化为 token 匹配）
     const orGroups: string[][] = [];
-    const orPattern = /(\S+)\s+(?:OR|或|\|)\s+(\S+)/gi;
-    text = text.replace(orPattern, (_m, left: string, right: string) => {
-      orGroups.push([left.toLowerCase(), right.toLowerCase()]);
-      return ' ';
-    });
+    // 按 OR 分隔符切分文本，提取连续的 OR 组
+    const orDelimiter = /\s+(?:OR|或|\|)\s+/i;
+    const tokens = text.split(orDelimiter);
+    if (tokens.length >= 2) {
+      // 所有 token 构成一个 OR 组
+      orGroups.push(tokens.map((t) => t.trim().toLowerCase()).filter(Boolean));
+      // 保留 OR 词在 text 中作为普通 token 参与搜索
+    }
 
     text = text.replace(/\s+/g, ' ').trim();
 

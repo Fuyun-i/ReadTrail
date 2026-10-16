@@ -56,10 +56,7 @@ export class SearchHistoryRepository {
     const db = await this.dbPromise;
     const tx = db.transaction('meta', 'readwrite');
     const store = tx.objectStore('meta');
-    await new Promise<void>((resolve, reject) => {
-      const req = store.delete(META_KEY);
-      req.onsuccess = () => resolve();
-      req.onerror = () => reject(req.error);
-    });
+    store.delete(META_KEY);
+    await transactionDone(tx);
   }
 }

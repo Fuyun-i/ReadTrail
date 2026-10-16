@@ -9,7 +9,7 @@ import { api } from '../../ui/api';
 const PREVIEW_LIMIT = 8000;
 
 export function PreviewModal(props: { page: PageRecord; onClose: () => void; onOpen: (url: string) => void; onPageUpdated?: (page: PageRecord) => void }) {
-  const { page } = props;
+  const { page, onClose, onPageUpdated } = props;
   const [expanded, setExpanded] = useState(false);
   const [tags, setTags] = useState<string[]>(page.tags ?? []);
   const [newTag, setNewTag] = useState('');
@@ -42,31 +42,40 @@ export function PreviewModal(props: { page: PageRecord; onClose: () => void; onO
     setNewTag('');
     try {
       const result = await api.updateTags(page.id, updatedTags);
-      props.onPageUpdated?.(result.page);
+      onPageUpdated?.(result.page);
     } catch {
       // 回滚
       setTags(tags);
     }
-  }, [newTag, tags, page.id, props]);
+  }, [newTag, tags, page.id, onPageUpdated]);
 
   const removeTag = useCallback(async (tag: string) => {
     const updatedTags = tags.filter((t) => t !== tag);
     setTags(updatedTags);
     try {
       const result = await api.updateTags(page.id, updatedTags);
-      props.onPageUpdated?.(result.page);
+      onPageUpdated?.(result.page);
     } catch {
       // 回滚
       setTags(tags);
     }
-  }, [tags, page.id, props]);
+  }, [tags, page.id, onPageUpdated]);
+
+  // Escape 关闭 modal
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [onClose]);
 
   return (
-    <div className="modal-backdrop" onClick={props.onClose}>
+    <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <header className="modal-header">
           <h2>{page.title || page.url}</h2>
-          <button onClick={props.onClose}>关闭</button>
+          <button onClick={onClose}>关闭</button>
         </header>
         <div className="modal-meta">
           <a href={page.url} target="_blank" rel="noreferrer">{page.url}</a>

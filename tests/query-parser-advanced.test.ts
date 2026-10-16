@@ -71,7 +71,12 @@ describe('QueryParser 高级语法', () => {
 
   it('时间短语仍然正常工作', async () => {
     const result = await parser.parse('昨天看过 rust', NOW);
-    expect(result.from).toBe(NOW - 86400000);
+    // 昨天：午夜对齐，from = 昨天零点
+    const dayStart = new Date(NOW);
+    dayStart.setHours(0, 0, 0, 0);
+    const startOfToday = dayStart.getTime();
+    expect(result.from).toBe(startOfToday - 86400000);
+    expect(result.to).toBe(startOfToday);
     expect(result.text).toContain('rust');
   });
 });

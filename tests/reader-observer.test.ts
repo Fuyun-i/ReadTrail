@@ -100,7 +100,7 @@ describe('ReaderObserver', () => {
     expect(observer.getSnapshot().activeDurationMs).toBeGreaterThan(5000);
 
     // 模拟 SPA 路由变化
-    const initialUrl = window.location.href;
+    void window.location.href;
     // jsdom 允许通过 history.pushState 改变 URL
     window.history.pushState({}, '', '/new-page');
     // 触发 tick 检测 URL 变化

@@ -17,6 +17,17 @@ export const DEFAULT_SETTINGS: UserSettings = {
 
 const SETTINGS_KEY = 'app';
 
+/** 合并设置：跳过 undefined 值，避免覆盖默认值 */
+function mergeSettings(base: UserSettings, patch: Partial<UserSettings>): UserSettings {
+  const result = { ...base };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value !== undefined) {
+      (result as Record<string, unknown>)[key] = value;
+    }
+  }
+  return result;
+}
+
 export class SettingsRepository {
   private dbPromise: Promise<IDBDatabase>;
   private cache?: UserSettings;
@@ -29,7 +40,7 @@ export class SettingsRepository {
     if (this.cache) return this.cache;
     const db = await this.dbPromise;
     const stored = await dbGet<{ id: string; settings: UserSettings }>(db, 'settings', SETTINGS_KEY);
-    this.cache = stored ? { ...DEFAULT_SETTINGS, ...stored.settings } : { ...DEFAULT_SETTINGS };
+    this.cache = stored ? mergeSettings(DEFAULT_SETTINGS, stored.settings) : { ...DEFAULT_SETTINGS };
     return this.cache;
   }
 

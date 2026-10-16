@@ -74,7 +74,11 @@ async function maybeCapture(snapshot: ReadingSnapshot): Promise<void> {
     const article = await extractArticle();
 
     // 提前检查 minTextLength：正文太短就不发消息，避免无谓的 SW 通信
-    if (article.text.length < threshold.minTextLength) return;
+    // 标记 routeVersion 防止每个 5s tick 重复提取（CPU 浪费）
+    if (article.text.length < threshold.minTextLength) {
+      lastCapturedRouteVersion = snapshot.routeVersion;
+      return;
+    }
 
     const candidate: Omit<CaptureCandidate, 'tabId' | 'windowId' | 'isIncognito'> = {
       url: article.url,

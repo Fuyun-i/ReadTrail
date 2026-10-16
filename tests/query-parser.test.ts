@@ -38,11 +38,15 @@ describe('QueryParser.parse', () => {
     expect(q.text).toBe('rust');
   });
 
-  it('「昨天」转为时间下界', async () => {
+  it('「昨天」转为时间范围（午夜对齐）', async () => {
     const q = await new QueryParser().parse('昨天 typescript', now);
     expect(q.text).toBe('typescript');
-    expect(q.from).toBe(now - 1 * 86_400_000);
-    expect(q.to).toBeUndefined();
+    // 昨天：from = 昨天零点, to = 今天零点
+    const dayStart = new Date(now);
+    dayStart.setHours(0, 0, 0, 0);
+    const startOfToday = dayStart.getTime();
+    expect(q.from).toBe(startOfToday - 86_400_000);
+    expect(q.to).toBe(startOfToday);
   });
 
   it('「3天前」相对时间转下界', async () => {
