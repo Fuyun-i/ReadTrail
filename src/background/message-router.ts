@@ -69,8 +69,9 @@ export class MessageRouter {
 }
 
 function requiresResponse(type: string): boolean {
-  // READING_PROGRESS（内容脚本单向进度）与 OPEN_LIBRARY（popup 单向开窗）不需要 requestId
-  return type !== 'READING_PROGRESS' && type !== 'OPEN_LIBRARY';
+  // 这些消息类型不需要响应，跳过 requestId 检查
+  // READING_PROGRESS 从不经过 route()，此处仅列出实际经过 route() 的无响应类型
+  return type !== 'OPEN_LIBRARY';
 }
 
 function asRequestId(value: unknown): string {

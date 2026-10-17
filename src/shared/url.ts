@@ -99,7 +99,7 @@ export function canonicalizeUrl(rawUrl: string): string {
   // 前缀匹配（带下划线/分隔符，误匹配风险低）
   const TRACKING_PARAM_PREFIXES = ['utm_'];
   // 精确匹配（短名前缀匹配会误删 spmabc / _gat 等非跟踪参数）
-  const TRACKING_PARAM_EXACT = new Set(['spm', 'fbclid', 'gclid', 'msclkid', 'yclid', '_ga', 'ref', 'ref_src']);
+  const TRACKING_PARAM_EXACT = new Set(['spm', 'fbclid', 'gclid', 'msclkid', 'yclid', '_ga', 'ref_src']);
   const removed: string[] = [];
   url.searchParams.forEach((_value, key) => {
     const lower = key.toLowerCase();

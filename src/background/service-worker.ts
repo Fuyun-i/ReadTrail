@@ -257,8 +257,19 @@ async function handleRuntimeMessage(
     }
     case 'MANUAL_CAPTURE_REQUEST': {
       const payload = msg.payload as Record<string, unknown> | undefined;
-      if (!payload || typeof payload.url !== 'string' || typeof payload.text !== 'string') {
-        return { ok: false, error: { code: 'INVALID_MESSAGE', message: '手动采集载荷不完整' } };
+      // H-1: 内联校验（MANUAL_CAPTURE_REQUEST 不经过 router.route()，需在此校验）
+      if (!payload || typeof payload.url !== 'string' || payload.url.length > 2048 ||
+          typeof payload.text !== 'string' || payload.text.length > 2_000_000) {
+        return { ok: false, error: { code: 'INVALID_MESSAGE', message: '手动采集载荷不完整或超长' } };
+      }
+      if (payload.title !== undefined && typeof payload.title !== 'string') {
+        return { ok: false, error: { code: 'INVALID_MESSAGE', message: '标题必须是字符串' } };
+      }
+      if (typeof payload.title === 'string' && payload.title.length > 1000) {
+        return { ok: false, error: { code: 'INVALID_MESSAGE', message: '标题超过长度上限' } };
+      }
+      if (payload.excerpt !== undefined && (typeof payload.excerpt !== 'string' || payload.excerpt.length > 5000)) {
+        return { ok: false, error: { code: 'INVALID_MESSAGE', message: '摘要超过长度上限' } };
       }
       const tabId = sender.tab?.id ?? 0;
       const windowId = sender.tab?.windowId ?? 0;
@@ -275,7 +286,7 @@ async function handleRuntimeMessage(
         source: 'manual',
       };
       const outcome = await coordinator.handleCandidate(candidate);
-      return { ok: true, data: outcome };
+      return { ok: true, data: outcome.status };
     }
     default:
       return { ok: false, error: { code: 'INVALID_MESSAGE', message: `未知消息类型: ${String(msg.type)}` } };

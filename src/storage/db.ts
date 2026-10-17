@@ -165,7 +165,7 @@ export async function dbGetPaged<T>(
   const objectStore = tx.objectStore(store);
   return new Promise<T[]>((resolve, reject) => {
     const results: T[] = [];
-    let skipped = 0;
+    let skipped = false;
     const cursorReq = objectStore.openCursor();
     cursorReq.onsuccess = () => {
       const cursor = cursorReq.result;
@@ -173,11 +173,13 @@ export async function dbGetPaged<T>(
         resolve(results);
         return;
       }
-      if (skipped < offset) {
-        skipped++;
-        cursor.advance(Math.max(1, offset - skipped + 1));
+      // 首次跳过 offset 条，一次性 advance 到目标位置
+      if (!skipped && offset > 0) {
+        skipped = true;
+        cursor.advance(offset);
         return;
       }
+      skipped = true;
       results.push(cursor.value as T);
       cursor.continue();
     };

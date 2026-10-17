@@ -44,7 +44,16 @@ export class SettingsRepository {
     if (this.cache) return this.cache;
     const db = await this.dbPromise;
     const stored = await dbGet<{ id: string; settings: UserSettings }>(db, 'settings', SETTINGS_KEY);
-    this.cache = stored ? mergeSettings(DEFAULT_SETTINGS, stored.settings) : { ...DEFAULT_SETTINGS };
+    const merged = stored ? mergeSettings(DEFAULT_SETTINGS, stored.settings) : { ...DEFAULT_SETTINGS };
+    // M25: get() 路径也做验证，对无效字段回退默认值
+    const validation = this.validate(merged);
+    if (!validation.valid) {
+      for (const err of validation.errors) {
+        const field = err.field as keyof UserSettings;
+        (merged as Record<string, unknown>)[field] = DEFAULT_SETTINGS[field];
+      }
+    }
+    this.cache = merged;
     return this.cache;
   }
 

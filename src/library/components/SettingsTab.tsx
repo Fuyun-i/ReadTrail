@@ -52,7 +52,7 @@ export function SettingsTab(props: {
         minTextLength: Number.isFinite(minTextLength) ? minTextLength : 300,
         // H-3: retentionDays=0 表示永久保留，提交 undefined 而非 0
         retentionDays: retentionDays && retentionDays > 0 ? retentionDays : undefined,
-        searchResultLimit,
+        searchResultLimit: Number.isFinite(searchResultLimit) ? searchResultLimit : 30,
         excludedDomains: excluded.split(/[,，\s]+/).filter(Boolean),
         includedDomains: included.split(/[,，\s]+/).filter(Boolean),
       });

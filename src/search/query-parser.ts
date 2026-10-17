@@ -30,6 +30,8 @@ const RELATIVE_PATTERNS: Array<{ pattern: RegExp; unitMs: number }> = [
 export class QueryParser {
   async parse(input: string, now: number = Date.now()): Promise<ParsedQuery> {
     // M6: 查询长度限制，防止超长查询导致性能问题
+    // 注意：截断可能破坏未闭合的语法（如 "phrase 或 domain:partial），
+    // 但作为 DoS 防御可接受——超 2000 字符的查询本身就不是正常使用场景
     let text = input.length > 2000 ? input.slice(0, 2000) : input;
     let from: number | undefined;
     let to: number | undefined;
@@ -128,7 +130,7 @@ export class QueryParser {
 }
 
 /** 简易 CJK/英文混合分词：连续英文按词，CJK 按二元组 */
-const CJK_RUN = /[一-鿿぀-ヿ가-힯]/;
+const CJK_RUN = /[一-鿿ぁ-ヿ가-힯]/;
 
 export function tokenize(text: string): string[] {
   const tokens: string[] = [];

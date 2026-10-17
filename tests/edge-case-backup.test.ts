@@ -44,7 +44,7 @@ describe('边界测试：validatePageRecord 极端输入', () => {
 
   it('tags 数组被正确处理', () => {
     const record = validatePageRecord({ url: 'a', title: 't', text: 'b', tags: ['Rust', 'Async', 'rust'] });
-    expect(record.tags).toEqual(['rust', 'async', 'rust']); // 小写化但不去重
+    expect(record.tags).toEqual(['rust', 'async']); // 小写化 + 去重
   });
 
   it('tags 非数组被忽略', () => {

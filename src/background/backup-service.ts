@@ -145,7 +145,7 @@ export class BackupService {
             ...(existing.tags ?? []),
             ...(record.tags ?? []),
           ])];
-          const tagsChanged = mergedTags.length !== (existing.tags?.length ?? 0);
+          const tagsChanged = mergedTags.length !== new Set(existing.tags ?? []).size;
           const merged: PageRecord = {
             ...existing,
             title: contentChanged ? record.title : existing.title,
@@ -246,7 +246,7 @@ export class BackupService {
       }
     }
 
-    const escapeMd = (s: string) => s.replace(/([#\\`*_{}\[\]()!~|-])/g, '\\$1');
+    const escapeMd = (s: string) => s.replace(/([#\\`*_{}\[\]()!~|>-])/g, '\\$1');
     const lines: string[] = [`# ReadTrail 导出（${new Date().toLocaleString()}）`, ''];
     for (const record of records) {
       lines.push(`## ${escapeMd(record.title)}`);
@@ -319,7 +319,7 @@ export function validatePageRecord(raw: unknown): PageRecord {
     maxScrollRatio: typeof r.maxScrollRatio === 'number' && r.maxScrollRatio >= 0 && r.maxScrollRatio <= 1 ? (r.maxScrollRatio as number) : 0,
     source: r.source === 'manual' ? 'manual' : 'auto',
     status: 'captured',
-    tags: Array.isArray(r.tags) ? (r.tags as string[]).filter((t) => typeof t === 'string').map((t) => t.trim().toLowerCase()).filter((t) => t.length > 0) : undefined,
+    tags: Array.isArray(r.tags) ? [...new Set((r.tags as string[]).filter((t) => typeof t === 'string').map((t) => t.trim().toLowerCase()).filter((t) => t.length > 0 && t.length <= 50))].slice(0, 50) : undefined,
     createdAt: typeof r.createdAt === 'number' ? (r.createdAt as number) : now,
     updatedAt: typeof r.updatedAt === 'number' ? (r.updatedAt as number) : now,
   };
