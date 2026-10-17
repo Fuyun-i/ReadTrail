@@ -33,9 +33,9 @@ export type PageListInput = {
 /** 域名匹配（支持管道分隔 OR 语义 + 子域匹配） */
 function matchesAnyDomain(recordDomain: string, filterDomain: string): boolean {
   const d = recordDomain.toLowerCase();
-  return filterDomain.split('|').some((f) => {
+  return filterDomain.split('|').filter(Boolean).some((f) => {
     const target = f.trim().toLowerCase();
-    if (!target) return true;
+    if (!target) return false;
     return d === target || d.endsWith('.' + target);
   });
 }

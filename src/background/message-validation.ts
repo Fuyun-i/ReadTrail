@@ -71,12 +71,15 @@ const CAPTURE_CANDIDATE_MAX = {
 export function validateCaptureCandidate(payload: unknown): CaptureCandidate {
   const obj = requireObject(payload);
   requireString(obj, 'url', MAX_URL_LENGTH);
+  if (obj.title !== undefined && typeof obj.title !== 'string') {
+    throw new AppError('INVALID_MESSAGE', '字段 title 必须是字符串');
+  }
   if (typeof obj.title === 'string' && obj.title.length > CAPTURE_CANDIDATE_MAX.title) {
     throw new AppError('INVALID_MESSAGE', `字段 title 超过长度上限`);
   }
   requireString(obj, 'text', CAPTURE_CANDIDATE_MAX.text);
-  if (obj.excerpt !== undefined && typeof obj.excerpt !== 'string') {
-    throw new AppError('INVALID_MESSAGE', '字段 excerpt 必须是字符串');
+  if (obj.excerpt !== undefined && (typeof obj.excerpt !== 'string' || obj.excerpt.length > CAPTURE_CANDIDATE_MAX.excerpt)) {
+    throw new AppError('INVALID_MESSAGE', '字段 excerpt 必须是字符串且不超过长度上限');
   }
   requireNumber(obj, 'readingDurationMs', 0, 24 * 3600 * 1000);
   requireNumber(obj, 'maxScrollRatio', 0, 1);
@@ -160,6 +163,7 @@ export function validateImportPayload(payload: unknown): { data: unknown; option
 /** 按 type 分派的 payload 校验器表（undefined = 无 payload 或免检） */
 const VALIDATORS: Record<string, PayloadValidator | undefined> = {
   CAPTURE_CANDIDATE: validateCaptureCandidate,
+
   SEARCH: validateSearchInput,
   GET_PAGE: (p) => { requireString(requireObject(p), 'pageId', MAX_PAGE_ID_LENGTH); },
   DELETE_PAGE: (p) => { requireString(requireObject(p), 'pageId', MAX_PAGE_ID_LENGTH); },
@@ -212,9 +216,9 @@ const VALIDATORS: Record<string, PayloadValidator | undefined> = {
       throw new AppError('INVALID_MESSAGE', '字段 excerpt 必须是字符串');
     }
   },
-  READING_PROGRESS: () => {},
-  TRIGGER_MANUAL_CAPTURE: () => {},
+  // READING_PROGRESS / MANUAL_CAPTURE_REQUEST: 在 service-worker.ts handleRuntimeMessage 中内联校验
 };
+
 
 /** 消息入口统一调用：未知类型在 MessageRouter 已处理；这里校验 payload */
 export function validateMessagePayload(message: WorkerMessage): void {
@@ -222,7 +226,7 @@ export function validateMessagePayload(message: WorkerMessage): void {
   if (!validator) return; // 未知类型交给 router
   if (!('payload' in message) || message.payload === undefined) {
     // 允许缺省 payload 的消息类型
-    if (['SEARCH', 'GET_PAGE', 'DELETE_PAGE', 'UPDATE_SETTINGS', 'IMPORT_JSON', 'CLEAR_BEFORE', 'CAPTURE_CANDIDATE', 'MANUAL_CAPTURE_REQUEST'].includes(message.type)) {
+    if (['SEARCH', 'GET_PAGE', 'DELETE_PAGE', 'UPDATE_SETTINGS', 'IMPORT_JSON', 'CLEAR_BEFORE'].includes(message.type)) {
       throw new AppError('INVALID_MESSAGE', `消息 ${message.type} 缺少 payload`);
     }
     return;

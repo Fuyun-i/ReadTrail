@@ -30,7 +30,7 @@ export class VisitRepository {
 
   async create(record: VisitRecord): Promise<void> {
     // M26: 基本字段校验，防止损坏数据写入
-    if (!record.id || !record.pageId || typeof record.startedAt !== 'number') {
+    if (!record.id || typeof record.startedAt !== 'number') {
       throw new Error('Invalid VisitRecord: missing required fields');
     }
     const db = await this.dbPromise;

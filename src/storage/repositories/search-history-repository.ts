@@ -1,9 +1,8 @@
 // 搜索历史存储 — 使用 IndexedDB meta store
 // 存储最近 20 个搜索词（去重、带时间戳）
 
-import { openDatabase, dbGet, DB_NAME, DB_VERSION } from '../db';
+import { openDatabase, dbGet, transactionDone, DB_NAME, DB_VERSION } from '../db';
 import { applyMigrations } from '../migrations';
-import { transactionDone } from '../db';
 
 const MAX_HISTORY = 20;
 const META_KEY = 'searchHistory';

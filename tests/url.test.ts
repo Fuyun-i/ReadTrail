@@ -15,7 +15,8 @@ describe('canonicalizeUrl', () => {
   });
 
   it('ref 参数删除但不误删 reference', () => {
-    expect(canonicalizeUrl('https://a.com/x?ref=news&reference=book')).toBe('https://a.com/x?reference=book');
+    // ref is a legitimate navigation param, not tracking — should be preserved
+    expect(canonicalizeUrl('https://a.com/x?ref=news&reference=book')).toBe('https://a.com/x?ref=news&reference=book');
   });
 
   it('非法 URL 原样返回', () => {

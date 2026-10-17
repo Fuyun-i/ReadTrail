@@ -15,7 +15,7 @@ export function reportReadingProgress(snapshot: ReadingSnapshot): void {
 }
 
 /** 发送手动采集请求，返回保存结果 */
-export async function requestManualCapture(article: ExtractedArticle): Promise<{ ok: boolean; outcome?: unknown; error?: string }> {
+export async function requestManualCapture(article: ExtractedArticle): Promise<{ ok: boolean; data?: unknown; error?: string }> {
   try {
     const response = await chrome.runtime.sendMessage({
       type: 'MANUAL_CAPTURE_REQUEST',

@@ -166,9 +166,9 @@ describe('边界测试：URL 规范化', () => {
     expect(result).toContain('page=2');
   });
 
-  it('ref= 参数被移除但 reference 不被移除', () => {
+  it('ref= 参数被保留（合法导航参数），reference 也不被移除', () => {
     const result1 = canonicalizeUrl('https://example.com?ref=foo');
-    expect(result1).not.toContain('ref=');
+    expect(result1).toContain('ref=foo');
     const result2 = canonicalizeUrl('https://example.com?reference=foo');
     expect(result2).toContain('reference=foo');
   });

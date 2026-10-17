@@ -251,17 +251,9 @@ export class FlexSearchProvider implements SearchProvider {
       });
     }
 
-    // M7: 去重（同一页面 ID 可能被多个 token 命中）
-    const seenIds = new Set<string>();
-    const dedupedResults = results.filter((r) => {
-      if (seenIds.has(r.page.id)) return false;
-      seenIds.add(r.page.id);
-      return true;
-    });
-
-    // 排序
+    // 排序（results 已由 fieldHits Map 保证 ID 唯一，无需额外去重）
     const sort = input.sort ?? 'relevance';
-    dedupedResults.sort((a, b) => {
+    results.sort((a, b) => {
       if (sort === 'recent') return b.page.lastVisitedAt - a.page.lastVisitedAt;
       if (sort === 'frequent') {
         return b.page.visitCount - a.page.visitCount || b.page.lastVisitedAt - a.page.lastVisitedAt;
@@ -269,7 +261,7 @@ export class FlexSearchProvider implements SearchProvider {
       return b.score - a.score;
     });
 
-    return dedupedResults.slice(offset, offset + limit);
+    return results.slice(offset, offset + limit);
   }
 
   async health(databaseCount: number): Promise<SearchHealth> {
@@ -305,7 +297,7 @@ export class FlexSearchProvider implements SearchProvider {
     const pages = await this.fetchPages([], {
       limit: (offset + limit) * 3,
       offset: 0,
-      sort: 'recent',
+      sort: input.sort === 'frequent' ? 'frequent' : 'recent',
       from: input.from,
       to: input.to,
       domain: input.domain,
@@ -336,7 +328,7 @@ export class FlexSearchProvider implements SearchProvider {
       .slice(offset, offset + limit);
 
     return filtered.map((page) => ({
-      page,
+      page: { ...page, excerpt: page.excerpt.length > 200 ? page.excerpt.slice(0, 200) + '…' : page.excerpt },
       score: 0,
       matchedFields: [],
       highlights: [],
@@ -354,7 +346,7 @@ function matchesAnyDomain(recordDomain: string, filterDomain: string): boolean {
 
 function matchesDomain(recordDomain: string, filterDomain: string): boolean {
   const f = filterDomain.trim().toLowerCase();
-  if (!f) return true;
+  if (!f) return false;
   const rd = recordDomain.toLowerCase();
   return rd === f || rd.endsWith('.' + f);
 }
@@ -377,18 +369,17 @@ function buildHighlights(page: PageRecord, queryTokens: string[], maxHighlights 
     { name: 'text', text: page.text.slice(0, 2000) },
   ];
 
+  // L21: 按 token 长度降序排列，优先高亮更长的匹配（如 CJK bigram 优先于单字）
+  const sortedTokens = [...queryTokens].sort((a, b) => b.length - a.length);
   for (const { name, text } of fields) {
     if (!text) continue;
     const lower = text.toLowerCase();
-    for (const token of queryTokens) {
+    for (const token of sortedTokens) {
       if (token.length < 1) continue;
       const pos = lower.indexOf(token.toLowerCase());
       if (pos >= 0) {
-        // L21: 使用 Array.from 避免 Unicode 代理对截断
-        const chars = Array.from(text);
-        const tokenChars = Array.from(token);
-        const safeEnd = Math.min(pos + tokenChars.length, chars.length);
-        highlights.push({ field: name, text: chars.slice(pos, safeEnd).join(''), start: pos, end: safeEnd });
+        // L21: 使用码元切片（pos 来自 indexOf，是码元索引）
+        highlights.push({ field: name, text: text.slice(pos, pos + token.length), start: pos, end: pos + token.length });
         break;
       }
     }

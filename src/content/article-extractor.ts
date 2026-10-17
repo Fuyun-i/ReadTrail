@@ -73,6 +73,10 @@ export async function extractArticle(): Promise<ExtractedArticle> {
     document.querySelector('main') ??
     document.querySelector('[role="main"]');
   if (semanticRoot) {
+    // L-1: 语义路径也做 5MB 防护，与 Readability 路径一致
+    if (semanticRoot.outerHTML.length > 5_000_000) {
+      throw new Error('Semantic root too large for cloneNode');
+    }
     const clone = semanticRoot.cloneNode(true) as HTMLElement;
     stripNoise(clone);
     const text = cleanText(clone.textContent ?? '');
@@ -88,13 +92,8 @@ export async function extractArticle(): Promise<ExtractedArticle> {
     }
   }
 
-  // 3. 可见文本降级
-  // M30: 优先用 textContent（不触发重排），仅在结果过短时回退到 innerText
-  let rawText = document.body.textContent ?? '';
-  if (rawText.trim().length < MIN_TEXT_LENGTH) {
-    rawText = document.body.innerText ?? rawText;
-  }
-  const text = cleanText(rawText);
+  // 3. 可见文本降级（M30: 用 textContent 避免重排，innerText 是其子集不会更长）
+  const text = cleanText(document.body.textContent ?? '');
 
   return {
     url,
