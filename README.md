@@ -224,7 +224,47 @@ npm run format     # Prettier 格式化
 
 ## 📋 更新日志
 
-### v0.5.0
+### v0.4.7
+
+**第三轮综合审计修复（3 轮，45 个问题）**
+- Critical：`dbGetPaged` 游标 skip 逻辑导致备份数据丢失
+- High：`MANUAL_CAPTURE_REQUEST` 缺少内联长度校验
+- Medium（8）：visit 校验、settings get() 校验、retention 删除顺序、Unicode 高亮修复、emptyQueryResults 摘要/排序、摘要长度限制、replace 模式 visits 预校验、SettingsTab NaN 防御、返回结构统一
+- Low（18）：导入合并、死代码清理、CJK 高亮排序、matchesAnyDomain 修复、CJK_RUN 范围、cloneNode 防御、innerText fallback、Markdown 转义、tags 去重、title 类型检查、死校验器移除、ref 参数移除
+- Round 3：语义路径 5MB throw 包裹 try/catch 走 fallback、emptyQueryResults 摘要截断实际生效、ref 参数移除实际生效 + 测试更新、matchesAnyDomain 修复同步到 flex-search-provider、validatePageRecord tags 去重 + 长度限制实际生效
+
+**文档与版本号同步**
+- README 更新日志：移除未发布的 v0.5.0 幽灵版本（其内容实为 v0.4.3 的工作），补齐 v0.4.2–v0.4.7 共 6 个缺失版本的更新日志
+- `manifest.config.mjs` APP_VERSION 由 0.4.6 同步至 0.4.7，重新构建 `dist/`
+- 验证：273 测试通过，TypeScript 零错误，ESLint 零警告
+
+### v0.4.6
+
+**审计修复（68 个问题：1 critical，12 high，32 medium，21 low，2 design）**
+- Critical：3+ 字中文搜索静默失败（CJK bigram 分词修复）
+- High：upsert/settings/addTag/removeTag 的 TOCTOU 竞争改为单 readwrite 事务；replace 模式导入先全量校验再删除；retention 清理非原子删除；全量 visits 加载导致 SW OOM 改分页；IMPORT_JSON 无大小限制加 64MB 上限；cloneNode 大 DOM 内存爆炸加 5MB 守卫；标签/短语空路径、大小写、OR 泄漏
+- Medium（32）：搜索正确性、备份安全、存储健壮性、content script 容错、query parser 优化、消息校验
+- Low（21）：隐私路径匹配、NaN 守卫、死代码移除、Unicode 高亮安全、重复计算合并
+- 验证：273 测试通过，TypeScript clean，ESLint clean
+
+### v0.4.5
+
+**审计修复（31 个问题：3 critical，6 high，14 medium，8 low）**
+- Critical：`validateCaptureCandidate` 误拒合法消息；`CLEAR_BEFORE` 在 service-worker 中死循环；`isBrowserPage` URL 匹配过宽
+- High：content-main 对 undefined capture 结果崩溃；replace 模式导入数据丢失（删除前预校验）；OR 查询丢结果（保留 OR 词进搜索文本）；SettingsTab/PopupApp 对 undefined 崩溃
+- Medium：首次挂载重复搜索、blob URL 泄漏（5min timeout fallback）、PreviewModal useCallback 依赖 + Escape 处理、SearchHistoryRepository.clear() 事务 await、域名匹配移除反向父级匹配、IMPORT_JSON 跳过 payload 大小检查、FlexSearchProvider.update catch + markNeedsRebuild、空查询过取 3x
+- Low：移除死代码 downloadBase64、readLaunchParams useMemo、ErrorBoundary 重试计数（3 次后 reload）、onManualCaptureTrigger 返回 cleanup、toErrorInfo 错误分类、manifest 加 content_security_policy、移除死 listForIndex、capture-coordinator 保留已有 source、migrations 用 newVersion 参数
+- 验证：typecheck ✅ | lint ✅ | unit 200/200 ✅ | E2E 17/17 ✅
+
+### v0.4.4
+
+**修复 26 个问题（5 critical，8 medium，13 lint warnings）**
+- Critical：retention 清理批量终止死循环；测试 mock 类型 20 个 TypeScript 错误；ESLint v8→v9 flat config 迁移；Service Worker 生命周期问题；SearchHistoryRepository 未用导入
+- Medium：listAllTags 改用索引替代全表扫描；流式批量导出；service-worker 问题；收窄过宽的 host_permissions；query-parser OR 正则；backup-service 导入校验 & SW 问题
+- Lint（13）：移除死代码（blobToBase64、fallback var、未用导入）；修复 React hooks exhaustive-deps；PreviewModal 用 relatedLoading
+- 验证：typecheck 0 错误，lint 0 警告，201 单元测试通过，17 E2E 测试通过
+
+### v0.4.3
 
 **标签与收藏系统**
 - PageRecord 新增 `tags` 字段，DB migration v2→v3 添加 tags 多值索引
@@ -241,6 +281,26 @@ npm run format     # Prettier 格式化
 **测试覆盖**
 - 新增 12 个测试文件、36 个测试用例，总计 23 文件 201 用例全部通过
 - 覆盖：QueryParser 高级语法、SearchSuggester、标签 CRUD、搜索历史存储
+
+**E2E 自动化**
+- Playwright E2E 测试套件（17 个用例全部通过），通过 launchPersistentContext + --load-extension 加载扩展
+- 覆盖：popup、library、搜索、标签切换、设置、高级查询、排序、SW 存活、导入导出、manifest
+
+### v0.4.2
+
+**大数据量性能优化（10k+ 记录）**
+- 请求持久化存储防止浏览器回收
+- 流式索引重建（500 条/批）避免 OOM
+- 批量 retention 清理减少事务开销
+- 导出改用 chrome.downloads API 替代 base64 消息通道
+- DB v2：新增 visitCount 索引用于高频排序查询
+- 域名筛选改用 domain 索引替代全表扫描
+- 导入去重改用批量查询（listIdsByPageIds）替代 listAll
+
+**新功能：按时间范围删除**
+- 支持删除过去 1h / 24h / 7d / 4m / 全部的记录
+- 保留单条删除
+- 批量删除带确认对话框
 
 ### v0.4.1
 
